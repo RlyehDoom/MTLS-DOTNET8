@@ -1,0 +1,13 @@
+{
+  "ServerCertThumbprint": "A37AB3C30590D3944F48438DC4E40A475C561F02",
+  "ClientCertThumbprint": "7C63CEC64CB152CB0E06BF058C91506830A5568F",
+  "Timestamp": "2025-08-13T20:04:32.9758818-04:00",
+  "CACertThumbprint": "",
+  "ServerUrl": "https://mtls-server.azurewebsites.net",
+  "ResourceGroup": "rg-mtls-demo",
+  "ClientAppName": "mtls-client",
+  "AppServicePlan": "asp-mtls-demo",
+  "ClientUrl": "https://mtls-client.azurewebsites.net",
+  "Location": "East US",
+  "ServerAppName": "mtls-server"
+}
