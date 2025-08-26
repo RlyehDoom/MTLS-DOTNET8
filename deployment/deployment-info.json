@@ -1,13 +1,16 @@
 {
+  "ClientStatus": "Running",
+  "ClientUrl": "https://mtls-client-3656.azurewebsites.net",
+  "ServerUrl": "https://mtls-server-8922.azurewebsites.net",
+  "CACertThumbprint": "97B4DF5826144584D2409EA89E7C4BC847764D4B",
+  "ResourceGroup": "rg-mtls-uscentral",
+  "ServerStatus": "Running",
+  "ClientAppName": "mtls-client-3656",
+  "AppServicePlan": "asp-mtls-demo",
   "ServerCertThumbprint": "A37AB3C30590D3944F48438DC4E40A475C561F02",
   "ClientCertThumbprint": "7C63CEC64CB152CB0E06BF058C91506830A5568F",
-  "Timestamp": "2025-08-13T20:04:32.9758818-04:00",
-  "CACertThumbprint": "",
-  "ServerUrl": "https://mtls-server.azurewebsites.net",
-  "ResourceGroup": "rg-mtls-demo",
-  "ClientAppName": "mtls-client",
-  "AppServicePlan": "asp-mtls-demo",
-  "ClientUrl": "https://mtls-client.azurewebsites.net",
-  "Location": "East US",
-  "ServerAppName": "mtls-server"
+  "DeploymentStatus": "Completed",
+  "Timestamp": "2025-08-13T21:10:01.4541471-04:00",
+  "Location": "Central US",
+  "ServerAppName": "mtls-server-8922"
 }

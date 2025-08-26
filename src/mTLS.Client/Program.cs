@@ -79,41 +79,20 @@ if (builder.Environment.IsDevelopment())
 }
 else
 {
-    // Production mode - simulate Azure behavior with local certificates
-    Console.WriteLine("Running in Production mode - simulating Azure client behavior");
+    // Production mode - Azure App Service configuration
+    Console.WriteLine("Running in Production mode - Azure App Service");
+    
+    // Get Azure port from environment variable
+    var azurePort = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+    Console.WriteLine($"Azure App Service Port: {azurePort}");
     
     builder.WebHost.ConfigureKestrel((context, serverOptions) =>
     {
-        var certificateService = context.Configuration.GetSection(CertificateConfiguration.SectionName).Get<CertificateConfiguration>();
+        // Listen on Azure provided port (HTTP only - Azure Load Balancer handles HTTPS termination)
+        serverOptions.Listen(IPAddress.Any, int.Parse(azurePort));
         
-        if (certificateService != null)
-        {
-            var serviceProvider = builder.Services.BuildServiceProvider();
-            var certService = serviceProvider.GetService<ICertificateService>();
-            var serverCert = certService?.LoadServerCertificate();
-            
-            if (serverCert != null)
-            {
-                Console.WriteLine($"Production mode - Using server certificate for HTTPS: {serverCert.Subject}");
-                
-                serverOptions.Listen(IPAddress.Any, 5000, listenOptions =>
-                {
-                    listenOptions.UseHttps(httpsOptions =>
-                    {
-                        httpsOptions.ServerCertificate = serverCert;
-                        httpsOptions.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
-                    });
-                });
-            }
-            else
-            {
-                Console.WriteLine("❌ Production mode - Server certificate not found for HTTPS");
-            }
-        }
-        else
-        {
-            Console.WriteLine("❌ Production mode - Certificate configuration not found");
-        }
+        Console.WriteLine($"Production mode - Listening on port {azurePort} (HTTP)");
+        Console.WriteLine("HTTPS termination handled by Azure Load Balancer");
     });
 }
 
