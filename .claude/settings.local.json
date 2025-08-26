@@ -2,11 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(chmod:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(mv:*)"
     ],
     "defaultMode": "acceptEdits",
     "additionalDirectories": [
-      "C:\\mnt\\c\\GIT\\mTLS"
+      "C:\\mnt\\c\\GIT\\mTLS",
+      "C:\\c\\GIT\\mTLS"
     ]
   }
 }

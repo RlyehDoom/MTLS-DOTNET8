@@ -29,10 +29,10 @@ load_deployment_info() {
         exit 1
     fi
     
-    RESOURCE_GROUP=$(cat deployment-info.json | jq -r '.ResourceGroup')
-    CLIENT_APP_NAME=$(cat deployment-info.json | jq -r '.ClientAppName')
-    CLIENT_URL=$(cat deployment-info.json | jq -r '.ClientUrl')
-    SERVER_URL=$(cat deployment-info.json | jq -r '.ServerUrl')
+    RESOURCE_GROUP=$(grep '"ResourceGroup"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    CLIENT_APP_NAME=$(grep '"ClientAppName"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    CLIENT_URL=$(grep '"ClientUrl"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    SERVER_URL=$(grep '"ServerUrl"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
     
     echo -e "${BLUE}📋 Loaded deployment configuration:${NC}"
     echo -e "  Resource Group: ${CYAN}$RESOURCE_GROUP${NC}"
@@ -56,10 +56,6 @@ check_prerequisites() {
         exit 1
     fi
     
-    if ! command -v jq &> /dev/null; then
-        echo -e "${RED}❌ jq is not installed${NC}"
-        exit 1
-    fi
     
     if ! az account show &> /dev/null; then
         echo -e "${RED}❌ Not logged into Azure${NC}"
@@ -72,7 +68,7 @@ check_prerequisites() {
     fi
     
     # Check if server is deployed
-    SERVER_STATUS=$(cat deployment-info.json | jq -r '.ServerStatus // "Unknown"')
+    SERVER_STATUS=$(grep '"ServerStatus"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/' || echo "Unknown")
     if [[ "$SERVER_STATUS" != "Running" ]]; then
         echo -e "${YELLOW}⚠️  Server status is: $SERVER_STATUS${NC}"
         echo -e "${YELLOW}  Consider deploying server first: ./03-deploy-server.sh${NC}"
@@ -227,21 +223,29 @@ cleanup() {
 update_deployment_info() {
     echo -e "${YELLOW}📄 Updating deployment information...${NC}"
     
-    # Read existing deployment info
-    DEPLOYMENT_INFO=$(cat deployment-info.json)
+    # Update deployment info without jq
+    CURRENT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
     
-    # Update with client deployment status
-    UPDATED_INFO=$(echo "$DEPLOYMENT_INFO" | jq \
-        --arg status "Client Deployed" \
-        --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")" \
-        '. + {
-            "ClientStatus": "Running",
-            "ClientDeploymentStatus": $status,
-            "ClientDeploymentTimestamp": $timestamp,
-            "DeploymentStatus": "Completed"
-        }')
+    # Check if already has client deployment info
+    if grep -q "ClientDeploymentStatus" deployment-info.json; then
+        # Update existing entries
+        sed -i "s/\"ClientDeploymentTimestamp\": \"[^\"]*\"/\"ClientDeploymentTimestamp\": \"$CURRENT_TIMESTAMP\"/" deployment-info.json
+        sed -i 's/"ClientStatus": "[^"]*"/"ClientStatus": "Running"/' deployment-info.json
+        sed -i 's/"ClientDeploymentStatus": "[^"]*"/"ClientDeploymentStatus": "Client Deployed"/' deployment-info.json
+        sed -i 's/"DeploymentStatus": "[^"]*"/"DeploymentStatus": "Completed"/' deployment-info.json
+    else
+        # Add new fields
+        sed 's/}$/,/' deployment-info.json > deployment-info-temp.json
+        cat >> deployment-info-temp.json << EOF
+  "ClientStatus": "Running",
+  "ClientDeploymentStatus": "Client Deployed",
+  "ClientDeploymentTimestamp": "$CURRENT_TIMESTAMP",
+  "DeploymentStatus": "Completed"
+}
+EOF
+        mv deployment-info-temp.json deployment-info.json
+    fi
     
-    echo "$UPDATED_INFO" > deployment-info.json
     echo -e "${GREEN}✅ Deployment info updated${NC}"
 }
 

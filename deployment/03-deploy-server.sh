@@ -29,9 +29,9 @@ load_deployment_info() {
         exit 1
     fi
     
-    RESOURCE_GROUP=$(cat deployment-info.json | jq -r '.ResourceGroup')
-    SERVER_APP_NAME=$(cat deployment-info.json | jq -r '.ServerAppName')
-    SERVER_URL=$(cat deployment-info.json | jq -r '.ServerUrl')
+    RESOURCE_GROUP=$(grep '"ResourceGroup"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    SERVER_APP_NAME=$(grep '"ServerAppName"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    SERVER_URL=$(grep '"ServerUrl"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
     
     echo -e "${BLUE}📋 Loaded deployment configuration:${NC}"
     echo -e "  Resource Group: ${CYAN}$RESOURCE_GROUP${NC}"
@@ -54,10 +54,6 @@ check_prerequisites() {
         exit 1
     fi
     
-    if ! command -v jq &> /dev/null; then
-        echo -e "${RED}❌ jq is not installed${NC}"
-        exit 1
-    fi
     
     if ! az account show &> /dev/null; then
         echo -e "${RED}❌ Not logged into Azure${NC}"
@@ -218,20 +214,27 @@ cleanup() {
 update_deployment_info() {
     echo -e "${YELLOW}📄 Updating deployment information...${NC}"
     
-    # Read existing deployment info
-    DEPLOYMENT_INFO=$(cat deployment-info.json)
+    # Update deployment info without jq
+    CURRENT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
     
-    # Update with server deployment status
-    UPDATED_INFO=$(echo "$DEPLOYMENT_INFO" | jq \
-        --arg status "Server Deployed" \
-        --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")" \
-        '. + {
-            "ServerStatus": "Running",
-            "ServerDeploymentStatus": $status,
-            "ServerDeploymentTimestamp": $timestamp
-        }')
+    # Check if already has server deployment info
+    if grep -q "ServerDeploymentStatus" deployment-info.json; then
+        # Update existing entry
+        sed -i "s/\"ServerDeploymentTimestamp\": \"[^\"]*\"/\"ServerDeploymentTimestamp\": \"$CURRENT_TIMESTAMP\"/" deployment-info.json
+        sed -i 's/"ServerStatus": "[^"]*"/"ServerStatus": "Running"/' deployment-info.json
+        sed -i 's/"ServerDeploymentStatus": "[^"]*"/"ServerDeploymentStatus": "Server Deployed"/' deployment-info.json
+    else
+        # Add new fields
+        sed 's/}$/,/' deployment-info.json > deployment-info-temp.json
+        cat >> deployment-info-temp.json << EOF
+  "ServerStatus": "Running",
+  "ServerDeploymentStatus": "Server Deployed",
+  "ServerDeploymentTimestamp": "$CURRENT_TIMESTAMP"
+}
+EOF
+        mv deployment-info-temp.json deployment-info.json
+    fi
     
-    echo "$UPDATED_INFO" > deployment-info.json
     echo -e "${GREEN}✅ Deployment info updated${NC}"
 }
 

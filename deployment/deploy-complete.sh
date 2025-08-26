@@ -101,7 +101,7 @@ parse_arguments() {
 # Function to check if all required scripts exist
 check_scripts() {
     local scripts=(
-        "01-create-azure-resources-fast.sh"
+        "01-create-azure-resources.sh"
         "02-configure-mtls.sh"
         "03-deploy-server.sh"
         "04-deploy-client.sh"
@@ -116,9 +116,9 @@ check_scripts() {
             exit 1
         fi
         
-        if [[ ! -x "$script" ]]; then
-            echo -e "${BLUE}  Making $script executable...${NC}"
-            chmod +x "$script"
+        if [[ ! -r "$script" ]]; then
+            echo -e "${RED}❌ Script $script is not readable${NC}"
+            exit 1
         fi
     done
     
@@ -200,7 +200,7 @@ execute_step() {
     
     local start_time=$(date +%s)
     
-    if ./"$script_name"; then
+    if NON_INTERACTIVE=true bash "$script_name"; then
         local end_time=$(date +%s)
         local duration=$((end_time - start_time))
         echo -e "${GREEN}✅ Step $step_number completed successfully in ${duration}s${NC}"
@@ -240,7 +240,7 @@ run_deployment() {
     
     # Step 1: Create Azure Resources
     if [[ "$SKIP_RESOURCES" == "false" ]]; then
-        if ! execute_step "Create Azure Resources" "01-create-azure-resources-fast.sh" "1"; then
+        if ! execute_step "Create Azure Resources" "01-create-azure-resources.sh" "1"; then
             ((failed_steps++))
         fi
     fi
@@ -297,8 +297,8 @@ run_deployment() {
     
     # Show final URLs if deployment info exists
     if [[ -f "deployment-info.json" ]]; then
-        local server_url=$(cat deployment-info.json | jq -r '.ServerUrl // "N/A"')
-        local client_url=$(cat deployment-info.json | jq -r '.ClientUrl // "N/A"')
+        local server_url=$(grep '"ServerUrl"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/' || echo "N/A")
+        local client_url=$(grep '"ClientUrl"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/' || echo "N/A")
         
         echo ""
         echo -e "${CYAN}🔗 Application URLs:${NC}"

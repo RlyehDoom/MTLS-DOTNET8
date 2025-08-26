@@ -1,11 +1,26 @@
 ﻿#!/bin/bash
 # =============================================================================
 # Script: 02-configure-mtls.sh
-# Description: Configure mTLS settings for Azure Web Apps
+# Description: Configure mTLS settings for Azure Web Apps (no jq dependency)
 # Prerequisites: Resources created with 01-create-azure-resources.sh
+# 
+# Usage: 
+#   ./02-configure-mtls.sh [SERVER_CERT] [CA_CERT] [CLIENT_CERT]
+#   Or set environment variables:
+#   SERVER_CERT_THUMBPRINT=xxx CA_CERT_THUMBPRINT=yyy CLIENT_CERT_THUMBPRINT=zzz ./02-configure-mtls.sh
 # =============================================================================
 
 set -e  # Exit on any error
+
+# Parse command line arguments
+if [[ $# -eq 3 ]]; then
+    SERVER_CERT_THUMBPRINT="$1"
+    CA_CERT_THUMBPRINT="$2"
+    CLIENT_CERT_THUMBPRINT="$3"
+    echo -e "${GREEN}Using thumbprints from command line arguments${NC}"
+elif [[ -n "$SERVER_CERT_THUMBPRINT" && -n "$CA_CERT_THUMBPRINT" && -n "$CLIENT_CERT_THUMBPRINT" ]]; then
+    echo -e "${GREEN}Using thumbprints from environment variables${NC}"
+fi
 
 # Color codes for output
 RED='\033[0;31m'
@@ -15,6 +30,15 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Function to extract JSON values without jq
+get_json_value() {
+    local json_file="$1"
+    local key="$2"
+    
+    # Use grep and sed to extract values (basic JSON parsing)
+    grep "\"$key\"" "$json_file" | sed 's/.*: *"\([^"]*\)".*/\1/' | sed 's/,$//'
+}
+
 # Function to load deployment info
 load_deployment_info() {
     if [[ ! -f "deployment-info.json" ]]; then
@@ -22,10 +46,10 @@ load_deployment_info() {
         exit 1
     fi
     
-    RESOURCE_GROUP=$(cat deployment-info.json | jq -r '.ResourceGroup')
-    SERVER_APP_NAME=$(cat deployment-info.json | jq -r '.ServerAppName')
-    CLIENT_APP_NAME=$(cat deployment-info.json | jq -r '.ClientAppName')
-    SERVER_URL=$(cat deployment-info.json | jq -r '.ServerUrl')
+    RESOURCE_GROUP=$(get_json_value "deployment-info.json" "ResourceGroup")
+    SERVER_APP_NAME=$(get_json_value "deployment-info.json" "ServerAppName")
+    CLIENT_APP_NAME=$(get_json_value "deployment-info.json" "ClientAppName")
+    SERVER_URL=$(get_json_value "deployment-info.json" "ServerUrl")
     
     echo -e "${BLUE}📋 Loaded deployment configuration:${NC}"
     echo -e "  Resource Group: ${CYAN}$RESOURCE_GROUP${NC}"
@@ -34,24 +58,94 @@ load_deployment_info() {
     echo ""
 }
 
+# Function to check if already configured
+check_if_configured() {
+    EXISTING_SERVER_CERT=$(get_json_value "deployment-info.json" "ServerCertThumbprint" 2>/dev/null || echo "")
+    EXISTING_CA_CERT=$(get_json_value "deployment-info.json" "CACertThumbprint" 2>/dev/null || echo "")
+    EXISTING_CLIENT_CERT=$(get_json_value "deployment-info.json" "ClientCertThumbprint" 2>/dev/null || echo "")
+    
+    if [[ -n "$EXISTING_SERVER_CERT" && -n "$EXISTING_CA_CERT" && -n "$EXISTING_CLIENT_CERT" ]]; then
+        echo -e "${BLUE}ℹ️  mTLS already configured with certificates:${NC}"
+        echo -e "  Server: ${YELLOW}$EXISTING_SERVER_CERT${NC}"
+        echo -e "  CA: ${YELLOW}$EXISTING_CA_CERT${NC}"
+        echo -e "  Client: ${YELLOW}$EXISTING_CLIENT_CERT${NC}"
+        echo ""
+        
+        read -p "Do you want to reconfigure with new certificates? (y/N): " RECONFIGURE
+        if [[ ! "$RECONFIGURE" =~ ^[Yy]$ ]]; then
+            echo -e "${GREEN}✅ Using existing mTLS configuration${NC}"
+            return 1  # Skip configuration
+        fi
+    fi
+    return 0  # Proceed with configuration
+}
+
+# Function to load thumbprints from config file
+load_thumbprints_from_config() {
+    local config_file="thumbprints-config.json"
+    
+    if [[ -f "$config_file" ]]; then
+        echo -e "${BLUE}📄 Loading thumbprints from $config_file${NC}"
+        
+        SERVER_CERT_THUMBPRINT=$(get_json_value "$config_file" "ServerCertThumbprint")
+        CA_CERT_THUMBPRINT=$(get_json_value "$config_file" "CACertThumbprint")
+        CLIENT_CERT_THUMBPRINT=$(get_json_value "$config_file" "ClientCertThumbprint")
+        
+        echo -e "${GREEN}✅ Thumbprints loaded from config file${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}⚠️  thumbprints-config.json not found${NC}"
+        return 1
+    fi
+}
+
 # Function to get certificate thumbprints from user
 get_certificate_thumbprints() {
+    # First try to load from config file
+    if load_thumbprints_from_config; then
+        echo -e "${CYAN}Certificate Thumbprints (from config):${NC}"
+        echo -e "  Server: ${YELLOW}$SERVER_CERT_THUMBPRINT${NC}"
+        echo -e "  CA: ${YELLOW}$CA_CERT_THUMBPRINT${NC}"
+        echo -e "  Client: ${YELLOW}$CLIENT_CERT_THUMBPRINT${NC}"
+        echo ""
+        
+        # Check if running in non-interactive mode (for deploy-complete.sh)
+        if [[ -n "$NON_INTERACTIVE" || ! -t 0 ]]; then
+            echo -e "${GREEN}✅ Using thumbprints from config (non-interactive mode)${NC}"
+            return 0
+        fi
+        
+        read -p "Use these thumbprints? (Y/n): " USE_CONFIG
+        if [[ "$USE_CONFIG" =~ ^[Nn]$ ]]; then
+            echo -e "${YELLOW}Please provide new thumbprints:${NC}"
+        else
+            return 0  # Use config thumbprints
+        fi
+    fi
+    
     echo -e "${YELLOW}🔑 Certificate Configuration${NC}"
     echo -e "${BLUE}Please provide the certificate thumbprints:${NC}"
     echo ""
     
-    # Server Certificate Thumbprint
-    if [[ -z "$SERVER_CERT_THUMBPRINT" ]]; then
+    # Use existing values as defaults
+    if [[ -n "$EXISTING_SERVER_CERT" ]]; then
+        read -p "Server Certificate Thumbprint [$EXISTING_SERVER_CERT]: " SERVER_CERT_THUMBPRINT
+        SERVER_CERT_THUMBPRINT=${SERVER_CERT_THUMBPRINT:-$EXISTING_SERVER_CERT}
+    else
         read -p "Server Certificate Thumbprint: " SERVER_CERT_THUMBPRINT
     fi
     
-    # CA Certificate Thumbprint
-    if [[ -z "$CA_CERT_THUMBPRINT" ]]; then
+    if [[ -n "$EXISTING_CA_CERT" ]]; then
+        read -p "CA Certificate Thumbprint [$EXISTING_CA_CERT]: " CA_CERT_THUMBPRINT
+        CA_CERT_THUMBPRINT=${CA_CERT_THUMBPRINT:-$EXISTING_CA_CERT}
+    else
         read -p "CA Certificate Thumbprint: " CA_CERT_THUMBPRINT
     fi
     
-    # Client Certificate Thumbprint
-    if [[ -z "$CLIENT_CERT_THUMBPRINT" ]]; then
+    if [[ -n "$EXISTING_CLIENT_CERT" ]]; then
+        read -p "Client Certificate Thumbprint [$EXISTING_CLIENT_CERT]: " CLIENT_CERT_THUMBPRINT
+        CLIENT_CERT_THUMBPRINT=${CLIENT_CERT_THUMBPRINT:-$EXISTING_CLIENT_CERT}
+    else
         read -p "Client Certificate Thumbprint: " CLIENT_CERT_THUMBPRINT
     fi
     
@@ -115,60 +209,25 @@ enable_client_certificates() {
     echo -e "${GREEN}✅ Client certificate authentication enabled${NC}"
 }
 
-# Function to configure custom startup command
-configure_startup_command() {
-    echo -e "${YELLOW}🚀 Configuring startup commands...${NC}"
-    
-    # Server startup command
-    az webapp config set \
-        --resource-group "$RESOURCE_GROUP" \
-        --name "$SERVER_APP_NAME" \
-        --startup-file "dotnet mTLS.Server.dll" \
-        --output none
-    
-    # Client startup command  
-    az webapp config set \
-        --resource-group "$RESOURCE_GROUP" \
-        --name "$CLIENT_APP_NAME" \
-        --startup-file "dotnet mTLS.Client.dll" \
-        --output none
-    
-    echo -e "${GREEN}✅ Startup commands configured${NC}"
-}
-
-# Function to configure connection strings (if needed)
-configure_connection_strings() {
-    echo -e "${YELLOW}🔗 Configuring connection strings (if needed)...${NC}"
-    
-    # Add any connection strings here if your application requires them
-    # For now, this is a placeholder
-    
-    echo -e "${BLUE}ℹ️  No additional connection strings required${NC}"
-}
-
-# Function to update deployment info
+# Function to update deployment info without jq
 update_deployment_info() {
     echo -e "${YELLOW}📄 Updating deployment information...${NC}"
     
-    # Read existing deployment info
-    DEPLOYMENT_INFO=$(cat deployment-info.json)
+    # Create temp file with updated info
+    CURRENT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
     
-    # Update with certificate thumbprints and configuration status
-    UPDATED_INFO=$(echo "$DEPLOYMENT_INFO" | jq \
-        --arg server_cert "$SERVER_CERT_THUMBPRINT" \
-        --arg ca_cert "$CA_CERT_THUMBPRINT" \
-        --arg client_cert "$CLIENT_CERT_THUMBPRINT" \
-        --arg status "mTLS Configured" \
-        --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")" \
-        '. + {
-            "ServerCertThumbprint": $server_cert,
-            "CACertThumbprint": $ca_cert,
-            "ClientCertThumbprint": $client_cert,
-            "ConfigurationStatus": $status,
-            "ConfigurationTimestamp": $timestamp
-        }')
+    # Read current file and append new fields (simple approach)
+    sed 's/}$/,/' deployment-info.json > deployment-info-temp.json
+    cat >> deployment-info-temp.json << EOF
+  "ServerCertThumbprint": "$SERVER_CERT_THUMBPRINT",
+  "CACertThumbprint": "$CA_CERT_THUMBPRINT",
+  "ClientCertThumbprint": "$CLIENT_CERT_THUMBPRINT",
+  "ConfigurationStatus": "mTLS Configured",
+  "ConfigurationTimestamp": "$CURRENT_TIMESTAMP"
+}
+EOF
     
-    echo "$UPDATED_INFO" > deployment-info.json
+    mv deployment-info-temp.json deployment-info.json
     echo -e "${GREEN}✅ Deployment info updated${NC}"
 }
 
@@ -189,14 +248,9 @@ display_configuration_summary() {
     echo -e "  • Client Cert: ${YELLOW}${CLIENT_CERT_THUMBPRINT}${NC}"
     echo ""
     echo -e "${BLUE}🔄 Next steps:${NC}"
-    echo -e "  1. Deploy server: ${YELLOW}./03-deploy-server.sh${NC}"
-    echo -e "  2. Deploy client: ${YELLOW}./04-deploy-client.sh${NC}"
-    echo -e "  3. Verify deployment: ${YELLOW}./05-verify-deployment.sh${NC}"
-    echo ""
-    echo -e "${YELLOW}💡 Important Notes:${NC}"
-    echo -e "  • Make sure certificates are uploaded to Azure App Service Certificate Store"
-    echo -e "  • Verify thumbprints match your certificates exactly"
-    echo -e "  • Test locally first if possible"
+    echo -e "  1. Deploy server: ${YELLOW}bash 03-deploy-server.sh${NC}"
+    echo -e "  2. Deploy client: ${YELLOW}bash 04-deploy-client.sh${NC}"
+    echo -e "  3. Verify deployment: ${YELLOW}bash 05-verify-deployment.sh${NC}"
     echo ""
 }
 
@@ -206,11 +260,6 @@ check_prerequisites() {
     
     if ! command -v az &> /dev/null; then
         echo -e "${RED}❌ Azure CLI is not installed${NC}"
-        exit 1
-    fi
-    
-    if ! command -v jq &> /dev/null; then
-        echo -e "${RED}❌ jq is not installed. Please install it for JSON processing${NC}"
         exit 1
     fi
     
@@ -229,12 +278,20 @@ main() {
     
     check_prerequisites
     load_deployment_info
+    
+    # Check if already configured
+    if ! check_if_configured; then
+        echo -e "${BLUE}📋 Next steps:${NC}"
+        echo -e "  1. Deploy server: ${YELLOW}bash 03-deploy-server.sh${NC}"
+        echo -e "  2. Deploy client: ${YELLOW}bash 04-deploy-client.sh${NC}"
+        echo -e "  3. Verify deployment: ${YELLOW}bash 05-verify-deployment.sh${NC}"
+        return 0
+    fi
+    
     get_certificate_thumbprints
     configure_server_settings
     configure_client_settings
     enable_client_certificates
-    configure_startup_command
-    configure_connection_strings
     update_deployment_info
     display_configuration_summary
 }

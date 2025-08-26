@@ -28,14 +28,14 @@ load_deployment_info() {
         exit 1
     fi
     
-    RESOURCE_GROUP=$(cat deployment-info.json | jq -r '.ResourceGroup')
-    SERVER_APP_NAME=$(cat deployment-info.json | jq -r '.ServerAppName')
-    CLIENT_APP_NAME=$(cat deployment-info.json | jq -r '.ClientAppName')
-    SERVER_URL=$(cat deployment-info.json | jq -r '.ServerUrl')
-    CLIENT_URL=$(cat deployment-info.json | jq -r '.ClientUrl')
-    SERVER_CERT_THUMBPRINT=$(cat deployment-info.json | jq -r '.ServerCertThumbprint // "N/A"')
-    CA_CERT_THUMBPRINT=$(cat deployment-info.json | jq -r '.CACertThumbprint // "N/A"')
-    CLIENT_CERT_THUMBPRINT=$(cat deployment-info.json | jq -r '.ClientCertThumbprint // "N/A"')
+    RESOURCE_GROUP=$(grep '"ResourceGroup"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    SERVER_APP_NAME=$(grep '"ServerAppName"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    CLIENT_APP_NAME=$(grep '"ClientAppName"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    SERVER_URL=$(grep '"ServerUrl"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    CLIENT_URL=$(grep '"ClientUrl"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/')
+    SERVER_CERT_THUMBPRINT=$(grep '"ServerCertThumbprint"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/' || echo "N/A")
+    CA_CERT_THUMBPRINT=$(grep '"CACertThumbprint"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/' || echo "N/A")
+    CLIENT_CERT_THUMBPRINT=$(grep '"ClientCertThumbprint"' deployment-info.json | sed 's/.*: *"\([^"]*\)".*/\1/' || echo "N/A")
     
     echo -e "${BLUE}📋 Loaded deployment configuration:${NC}"
     echo -e "  Resource Group: ${CYAN}$RESOURCE_GROUP${NC}"
@@ -53,10 +53,6 @@ check_prerequisites() {
         exit 1
     fi
     
-    if ! command -v jq &> /dev/null; then
-        echo -e "${RED}❌ jq is not installed${NC}"
-        exit 1
-    fi
     
     if ! command -v az &> /dev/null; then
         echo -e "${RED}❌ Azure CLI is not installed${NC}"
@@ -266,10 +262,10 @@ test_end_to_end_mtls() {
         if [[ -f /tmp/mtls_test_result.json ]]; then
             echo -e "${GREEN}  ✅ Client can communicate with server via mTLS${NC}"
             
-            # Try to parse and display result
-            if command -v jq &> /dev/null && jq . /tmp/mtls_test_result.json > /dev/null 2>&1; then
+            # Try to display result without jq
+            if [[ -s /tmp/mtls_test_result.json ]]; then
                 echo -e "${CYAN}  Response details:${NC}"
-                jq '.' /tmp/mtls_test_result.json 2>/dev/null || echo "  (Could not parse JSON response)"
+                cat /tmp/mtls_test_result.json || echo "  (Could not display response)"
             fi
             
             rm -f /tmp/mtls_test_result.json

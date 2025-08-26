@@ -7,6 +7,12 @@
   "ServerUrl": "https://mtls-server-529349d5.azurewebsites.net",
   "ClientUrl": "https://mtls-client-529349d5.azurewebsites.net",
   "DeploymentStatus": "Resources Created",
-  "Timestamp": "2025-08-26T14:12:00.607Z",
+  "Timestamp": "2025-08-26T14:48:10.414Z",
   "SKU": "B1"
+,
+  "ServerCertThumbprint": "FE9B47015AF89E0F59F96AA6F8752C9911632DB1",
+  "CACertThumbprint": "97B4DF5826144584D2409EA89E7C4BC847764D4B",
+  "ClientCertThumbprint": "73343E44714272405A90A542938F6C38080DCD14",
+  "ConfigurationStatus": "mTLS Configured",
+  "ConfigurationTimestamp": "2025-08-26T14:54:09.659Z"
 }
