@@ -60,7 +60,11 @@
       "Bash(./02-configure-mtls.sh:*)",
       "Bash(az keyvault certificate:*)",
       "Bash(timeout 20s az webapp log tail --name \"mtls-server-529349d5\" --resource-group \"rg-mtls-demo\" --provider application)",
-      "WebFetch(domain:mtls-client-529349d5.azurewebsites.net)"
+      "WebFetch(domain:mtls-client-529349d5.azurewebsites.net)",
+      "WebFetch(domain:mtls-server-529349d5.azurewebsites.net)",
+      "Bash(timeout:*)",
+      "Bash(az webapp log config:*)",
+      "Bash(az keyvault secret download:*)"
     ],
     "defaultMode": "acceptEdits",
     "additionalDirectories": [

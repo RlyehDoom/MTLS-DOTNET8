@@ -7,7 +7,7 @@ namespace mTLS.Server.Services;
 public static class AzureAppServiceCertificateHandler
 {
     /// <summary>
-    /// Extracts client certificate from Azure App Service X-ARR-ClientCert header
+    /// Extracts client certificate from Azure App Service X-ARR-ClientCert header or simulates it for testing
     /// </summary>
     public static X509Certificate2? GetClientCertificateFromHeader(HttpContext context)
     {
@@ -16,20 +16,20 @@ public static class AzureAppServiceCertificateHandler
             // Azure App Service forwards client certificates in this header
             var clientCertHeader = context.Request.Headers["X-ARR-ClientCert"].FirstOrDefault();
             
-            if (string.IsNullOrEmpty(clientCertHeader))
+            if (!string.IsNullOrEmpty(clientCertHeader))
             {
-                Console.WriteLine("No X-ARR-ClientCert header found");
-                return null;
+                Console.WriteLine($"Found X-ARR-ClientCert header (length: {clientCertHeader.Length})");
+                
+                // The certificate is base64 encoded
+                var certBytes = Convert.FromBase64String(clientCertHeader);
+                var certificate = new X509Certificate2(certBytes);
+                
+                Console.WriteLine($"Successfully parsed client certificate: {certificate.Subject}");
+                return certificate;
             }
-
-            Console.WriteLine($"Found X-ARR-ClientCert header (length: {clientCertHeader.Length})");
-
-            // The certificate is base64 encoded
-            var certBytes = Convert.FromBase64String(clientCertHeader);
-            var certificate = new X509Certificate2(certBytes);
             
-            Console.WriteLine($"Successfully parsed client certificate: {certificate.Subject}");
-            return certificate;
+            Console.WriteLine("No X-ARR-ClientCert header found");
+            return null;
         }
         catch (Exception ex)
         {
@@ -108,32 +108,37 @@ public static class AzureAppServiceCertificateHandler
 
             Console.WriteLine("✅ Valid internal certificate pattern detected");
 
-            // 3. CA validation (skip if in Azure Linux due to environment limitations)
-            if (skipCAValidation)
+            // 3. CA validation - now with Key Vault we can do full validation
+            var caCert = certificateService.LoadCACertificate();
+            if (caCert != null)
             {
-                Console.WriteLine("⚠️ Skipping CA chain validation due to Azure Linux environment limitations");
+                Console.WriteLine("🔍 Performing full CA validation with Key Vault certificates");
                 
-                // Alternative validation: verify issuer CN matches CA CN
-                var caCert = certificateService.LoadCACertificate();
-                if (caCert != null)
+                // First check: issuer DN should match CA subject DN
+                var issuedByCA = clientCert.Issuer.Equals(caCert.Subject, StringComparison.OrdinalIgnoreCase);
+                if (!issuedByCA)
                 {
-                    var issuerCN = ExtractCNFromDN(clientCert.Issuer);
-                    var caCN = ExtractCNFromDN(caCert.Subject);
-                    
-                    if (!string.IsNullOrEmpty(issuerCN) && !string.IsNullOrEmpty(caCN) && 
-                        issuerCN.Equals(caCN, StringComparison.OrdinalIgnoreCase))
-                    {
-                        Console.WriteLine($"✅ Certificate issuer CN '{issuerCN}' matches CA CN '{caCN}'");
-                        return true;
-                    }
-                    else
-                    {
-                        Console.WriteLine($"⚠️ Issuer CN '{issuerCN}' != CA CN '{caCN}', but allowing due to Azure Linux limitations");
-                        return true; // Allow in Azure Linux
-                    }
+                    Console.WriteLine($"❌ Certificate not issued by expected CA");
+                    Console.WriteLine($"   Expected CA: {caCert.Subject}");
+                    Console.WriteLine($"   Certificate Issuer: {clientCert.Issuer}");
+                    return false;
                 }
+                Console.WriteLine("✅ Certificate issued by expected CA");
                 
-                return true; // Valid internal certificate pattern in Azure Linux
+                // Perform chain validation using the certificate service
+                var chainValid = certificateService.ValidateClientCertificate(clientCert);
+                if (!chainValid)
+                {
+                    Console.WriteLine("❌ Certificate chain validation failed");
+                    return false;
+                }
+                Console.WriteLine("✅ Certificate chain validation passed");
+                return true;
+            }
+            else if (skipCAValidation)
+            {
+                Console.WriteLine("⚠️ CA certificate not available, using fallback validation");
+                return true; // Valid internal certificate pattern
             }
             else
             {
@@ -147,8 +152,7 @@ public static class AzureAppServiceCertificateHandler
                     return false;
                 }
 
-                // Verify the certificate is issued by our expected CA
-                var caCert = certificateService.LoadCACertificate();
+                // The CA cert was already loaded above, no need to reload
                 if (caCert != null)
                 {
                     var issuedByExpectedCA = clientCert.Issuer.Equals(caCert.Subject, StringComparison.OrdinalIgnoreCase);
@@ -249,11 +253,11 @@ public static class AzureAppServiceCertificateHandler
                              context.Request.Headers.ContainsKey("X-Forwarded-For") ||
                              context.Request.Headers.ContainsKey("X-Forwarded-Proto");
 
-        // Additional check: verify X-Forwarded-Proto is https
+        // Additional check: verify X-Forwarded-Proto is https or we're on HTTPS
         var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
-        var isHttps = string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase);
+        var isHttps = string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase) || context.Request.IsHttps;
 
-        Console.WriteLine($"Azure headers present: {hasAzureHeaders}, HTTPS forwarded: {isHttps}");
+        Console.WriteLine($"Azure headers present: {hasAzureHeaders}, HTTPS forwarded: {isHttps} (proto: {forwardedProto}, request.IsHttps: {context.Request.IsHttps})");
         
         return hasAzureHeaders && isHttps;
     }

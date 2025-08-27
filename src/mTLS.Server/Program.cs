@@ -231,7 +231,7 @@ app.MapGet("/mtls-test", (HttpContext context, ICertificateService certificateSe
         Message = "No client certificate provided", 
         Info = "Client certificate should be forwarded by Azure App Service in X-ARR-ClientCert header" 
     });
-}); // Removed RequireAuthorization temporarily
+}).RequireAuthorization("RequireClientCertificate");
 
 Console.WriteLine("Starting mTLS API server...");
 Console.WriteLine("Endpoints available:");
