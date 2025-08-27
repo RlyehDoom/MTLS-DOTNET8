@@ -50,32 +50,9 @@ builder.Services.AddAuthorization();
 // Configure Kestrel for HTTPS with client certificate
 if (builder.Environment.IsDevelopment())
 {
-    Console.WriteLine("Running in Development mode - configuring Kestrel with HTTPS");
-    builder.WebHost.ConfigureKestrel((context, serverOptions) =>
-    {
-        var certificateService = context.Configuration.GetSection(CertificateConfiguration.SectionName).Get<CertificateConfiguration>();
-        
-        if (certificateService != null)
-        {
-            var serviceProvider = builder.Services.BuildServiceProvider();
-            var certService = serviceProvider.GetService<ICertificateService>();
-            var serverCert = certService?.LoadServerCertificate(); // Usar certificado del servidor
-            
-            if (serverCert != null)
-            {
-                Console.WriteLine($"Using server certificate for HTTPS endpoint: {serverCert.Subject}");
-                
-                serverOptions.Listen(IPAddress.Any, 5000, listenOptions =>
-                {
-                    listenOptions.UseHttps(httpsOptions =>
-                    {
-                        httpsOptions.ServerCertificate = serverCert; // Usar certificado del servidor
-                        httpsOptions.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
-                    });
-                });
-            }
-        }
-    });
+    Console.WriteLine("Running in Development mode - using launch settings configuration");
+    // Let Kestrel use the URLs from launchSettings.json
+    // No manual binding needed - Kestrel will handle HTTP and HTTPS based on applicationUrl
 }
 else
 {
@@ -150,14 +127,26 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Configure static files for Azure deployment where index.html is in root
-app.UseDefaultFiles(new DefaultFilesOptions
+// Configure default files based on environment
+if (app.Environment.IsProduction())
 {
-    DefaultFileNames = { "index.html" },
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
-        Path.Combine(builder.Environment.ContentRootPath)),
-    RequestPath = ""
-});
+    // In production (Azure), index.html is in the root directory
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        DefaultFileNames = { "index.html" },
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+            Path.Combine(builder.Environment.ContentRootPath)),
+        RequestPath = ""
+    });
+}
+else
+{
+    // In development, index.html is in wwwroot
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        DefaultFileNames = { "index.html" }
+    });
+}
 
 app.UseStaticFiles(); // Serves from wwwroot by default
 

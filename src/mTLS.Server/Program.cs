@@ -52,53 +52,9 @@ builder.Services.AddAuthorization(options =>
 // Configure Kestrel for local development only
 if (builder.Environment.IsDevelopment())
 {
-    Console.WriteLine("Running in Development mode - configuring Kestrel with HTTPS");
-    builder.WebHost.ConfigureKestrel((context, serverOptions) =>
-    {
-        var certificateService = context.Configuration.GetSection(CertificateConfiguration.SectionName).Get<CertificateConfiguration>();
-        
-        if (certificateService != null)
-        {
-            var serviceProvider = builder.Services.BuildServiceProvider();
-            var certService = serviceProvider.GetService<ICertificateService>();
-            var serverCert = certService?.LoadServerCertificate();
-            
-            if (serverCert != null)
-            {
-                Console.WriteLine($"Using server certificate: {serverCert.Subject}");
-                
-                serverOptions.Listen(IPAddress.Any, 5001, listenOptions =>
-                {
-                    listenOptions.UseHttps(httpsOptions =>
-                    {
-                        httpsOptions.ServerCertificate = serverCert;
-                        httpsOptions.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
-                        httpsOptions.ClientCertificateValidation = (certificate, chain, errors) =>
-                        {
-                            if (certificate == null) return true;
-                            
-                            var isValid = certService?.ValidateClientCertificate(certificate) ?? false;
-                            Console.WriteLine($"Certificate validation result: {isValid}");
-                            Console.WriteLine($"Certificate subject: {certificate?.Subject}");
-                            Console.WriteLine($"Certificate issuer: {certificate?.Issuer}");
-                            
-                            return isValid;
-                        };
-                    });
-                });
-            }
-            else
-            {
-                Console.WriteLine("❌ Server certificate not found - using default HTTP configuration");
-                serverOptions.Listen(IPAddress.Any, 5000);
-            }
-        }
-        else
-        {
-            Console.WriteLine("❌ Certificate configuration not found - using default HTTP configuration");
-            serverOptions.Listen(IPAddress.Any, 5000);
-        }
-    });
+    Console.WriteLine("Running in Development mode - using launch settings configuration");
+    // Let Kestrel use the URLs from launchSettings.json
+    // No manual binding needed - Kestrel will handle HTTP and HTTPS based on applicationUrl
 }
 else
 {
@@ -130,11 +86,26 @@ else
 
 app.UseHttpsRedirection();
 
-// Serve static files from current directory (root) in Azure
-app.UseDefaultFiles(new DefaultFilesOptions
+// Configure default files based on environment
+if (app.Environment.IsProduction())
 {
-    DefaultFileNames = { "index.html" }
-});
+    // In production (Azure), index.html is in the root directory
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        DefaultFileNames = { "index.html" },
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+            Path.Combine(builder.Environment.ContentRootPath)),
+        RequestPath = ""
+    });
+}
+else
+{
+    // In development, index.html is in wwwroot
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        DefaultFileNames = { "index.html" }
+    });
+}
 
 app.UseStaticFiles(); // Serves from wwwroot by default
 
