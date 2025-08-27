@@ -50,6 +50,7 @@ load_deployment_info() {
     SERVER_APP_NAME=$(get_json_value "deployment-info.json" "ServerAppName")
     CLIENT_APP_NAME=$(get_json_value "deployment-info.json" "ClientAppName")
     SERVER_URL=$(get_json_value "deployment-info.json" "ServerUrl")
+    LOCATION=$(get_json_value "deployment-info.json" "Location")
     
     echo -e "${BLUE}📋 Loaded deployment configuration:${NC}"
     echo -e "  Resource Group: ${CYAN}$RESOURCE_GROUP${NC}"
@@ -268,7 +269,11 @@ update_deployment_info() {
   "ServerCertThumbprint": "$SERVER_CERT_THUMBPRINT",
   "CACertThumbprint": "$CA_CERT_THUMBPRINT",
   "ClientCertThumbprint": "$CLIENT_CERT_THUMBPRINT",
-  "ConfigurationStatus": "mTLS Configured",
+  "KeyVaultName": "$VAULT_NAME",
+  "KeyVaultUrl": "$VAULT_URL",
+  "ServerPrincipalId": "$SERVER_PRINCIPAL_ID",
+  "ClientPrincipalId": "$CLIENT_PRINCIPAL_ID",
+  "ConfigurationStatus": "mTLS with Key Vault Configured",
   "ConfigurationTimestamp": "$CURRENT_TIMESTAMP"
 }
 EOF
@@ -296,6 +301,9 @@ display_configuration_summary() {
     echo -e "${BLUE}🔄 Configuration Changes Applied:${NC}"
     echo -e "  • Client Certificate Mode: ${YELLOW}Required${NC}"
     echo -e "  • Certificate Store Access: ${YELLOW}Enabled${NC}"
+    echo -e "  • Azure Key Vault: ${YELLOW}${VAULT_NAME}${NC}"
+    echo -e "  • Managed Identity: ${YELLOW}Enabled${NC}"
+    echo -e "  • RBAC Permissions: ${YELLOW}Configured${NC}"
     echo -e "  • Environment Variables: ${YELLOW}Configured${NC}"
     echo -e "  • Applications: ${YELLOW}Restarted${NC}"
     echo ""
@@ -323,6 +331,120 @@ check_prerequisites() {
     echo -e "${GREEN}✅ Prerequisites check passed${NC}"
 }
 
+# Function to create or verify Azure Key Vault
+setup_azure_key_vault() {
+    echo -e "${YELLOW}🔑 Setting up Azure Key Vault...${NC}"
+    
+    # Check if vault already exists by looking for existing configuration
+    EXISTING_VAULT_NAME=$(get_json_value "deployment-info.json" "KeyVaultName" 2>/dev/null || echo "")
+    
+    if [[ -n "$EXISTING_VAULT_NAME" ]]; then
+        VAULT_NAME="$EXISTING_VAULT_NAME"
+        VAULT_URL="https://${VAULT_NAME}.vault.azure.net/"
+        echo -e "${BLUE}ℹ️  Using existing Key Vault: ${VAULT_NAME}${NC}"
+    else
+        # Generate new vault name
+        VAULT_NAME="kv-mtls-demo-$RANDOM"
+        VAULT_URL="https://${VAULT_NAME}.vault.azure.net/"
+    fi
+    
+    # Check if vault exists
+    if az keyvault show --name "$VAULT_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        echo -e "${BLUE}ℹ️  Key Vault ${VAULT_NAME} already exists${NC}"
+    else
+        echo -e "${BLUE}Creating new Key Vault: ${VAULT_NAME}${NC}"
+        az keyvault create \
+            --name "$VAULT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --location "$LOCATION" \
+            --enable-rbac-authorization \
+            --output table
+        
+        echo -e "${GREEN}✅ Key Vault created successfully${NC}"
+    fi
+    
+    VAULT_URL="https://${VAULT_NAME}.vault.azure.net/"
+    echo -e "${CYAN}Key Vault URL: ${VAULT_URL}${NC}"
+}
+
+# Function to enable managed identity and configure Key Vault access
+configure_key_vault_access() {
+    echo -e "${YELLOW}🔐 Configuring Key Vault access with Managed Identity...${NC}"
+    
+    # Enable managed identity for server app
+    echo -e "${BLUE}Enabling managed identity for server app...${NC}"
+    SERVER_PRINCIPAL_ID=$(az webapp identity assign \
+        --name "$SERVER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "principalId" \
+        --output tsv)
+    
+    echo -e "${CYAN}Server Managed Identity: ${SERVER_PRINCIPAL_ID}${NC}"
+    
+    # Enable managed identity for client app
+    echo -e "${BLUE}Enabling managed identity for client app...${NC}"
+    CLIENT_PRINCIPAL_ID=$(az webapp identity assign \
+        --name "$CLIENT_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "principalId" \
+        --output tsv)
+    
+    echo -e "${CYAN}Client Managed Identity: ${CLIENT_PRINCIPAL_ID}${NC}"
+    
+    # Get subscription ID
+    SUBSCRIPTION_ID=$(az account show --query "id" --output tsv)
+    VAULT_SCOPE="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.KeyVault/vaults/${VAULT_NAME}"
+    
+    echo -e "${BLUE}Assigning Key Vault Certificate User role to server...${NC}"
+    az role assignment create \
+        --role "Key Vault Certificate User" \
+        --assignee "$SERVER_PRINCIPAL_ID" \
+        --scope "$VAULT_SCOPE" \
+        --output table || echo -e "${YELLOW}⚠️  Role assignment may already exist${NC}"
+    
+    echo -e "${BLUE}Assigning Key Vault Certificate User role to client...${NC}"
+    az role assignment create \
+        --role "Key Vault Certificate User" \
+        --assignee "$CLIENT_PRINCIPAL_ID" \
+        --scope "$VAULT_SCOPE" \
+        --output table || echo -e "${YELLOW}⚠️  Role assignment may already exist${NC}"
+    
+    echo -e "${GREEN}✅ Key Vault access configured${NC}"
+}
+
+# Function to configure Key Vault application settings
+configure_key_vault_settings() {
+    echo -e "${YELLOW}⚙️  Configuring Key Vault application settings...${NC}"
+    
+    # Configure server app with Key Vault settings
+    echo -e "${BLUE}Configuring Key Vault settings for server app...${NC}"
+    az webapp config appsettings set \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$SERVER_APP_NAME" \
+        --settings \
+            "AzureKeyVault__UseKeyVault=true" \
+            "AzureKeyVault__VaultUrl=$VAULT_URL" \
+            "AzureKeyVault__ServerCertName=Server-Certificate" \
+            "AzureKeyVault__CACertName=CA-Certificate" \
+            "AzureKeyVault__ClientCertName=Client-Certificate" \
+        --output table
+    
+    # Configure client app with Key Vault settings
+    echo -e "${BLUE}Configuring Key Vault settings for client app...${NC}"
+    az webapp config appsettings set \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$CLIENT_APP_NAME" \
+        --settings \
+            "AzureKeyVault__UseKeyVault=true" \
+            "AzureKeyVault__VaultUrl=$VAULT_URL" \
+            "AzureKeyVault__ServerCertName=Server-Certificate" \
+            "AzureKeyVault__CACertName=CA-Certificate" \
+            "AzureKeyVault__ClientCertName=Client-Certificate" \
+        --output table
+    
+    echo -e "${GREEN}✅ Key Vault application settings configured${NC}"
+}
+
 # Main execution
 main() {
     echo -e "${GREEN}🔒 Starting mTLS configuration for Azure Web Apps...${NC}"
@@ -341,6 +463,9 @@ main() {
     fi
     
     get_certificate_thumbprints
+    setup_azure_key_vault
+    configure_key_vault_access
+    configure_key_vault_settings
     configure_server_settings
     configure_client_settings
     enable_client_certificates

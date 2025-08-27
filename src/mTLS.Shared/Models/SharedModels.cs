@@ -74,3 +74,14 @@ public class AzureCertificateConfiguration
     public string CACertThumbprint { get; set; } = string.Empty;
     public string ClientCertThumbprint { get; set; } = string.Empty;
 }
+
+public class AzureKeyVaultConfiguration
+{
+    public const string SectionName = "AzureKeyVault";
+    
+    public string VaultUrl { get; set; } = string.Empty;
+    public string ServerCertName { get; set; } = string.Empty;
+    public string CACertName { get; set; } = string.Empty;
+    public string ClientCertName { get; set; } = string.Empty;
+    public bool UseKeyVault { get; set; } = false;
+}
