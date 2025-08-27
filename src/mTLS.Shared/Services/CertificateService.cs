@@ -99,13 +99,110 @@ public class AzureCertificateService : ICertificateService
 
     private X509Certificate2? LoadCertificateFromStore(string thumbprint)
     {
-        if (string.IsNullOrEmpty(thumbprint)) return null;
+        if (string.IsNullOrEmpty(thumbprint)) 
+        {
+            Console.WriteLine("❌ Empty thumbprint provided");
+            return null;
+        }
 
-        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-        store.Open(OpenFlags.ReadOnly);
+        Console.WriteLine($"🔍 Looking for certificate with thumbprint: {thumbprint}");
 
-        var certificates = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false);
-        return certificates.Count > 0 ? certificates[0] : null;
+        try
+        {
+            // First, try Azure App Service specific method for Linux
+            var azureCert = LoadCertificateFromAzureAppService(thumbprint);
+            if (azureCert != null)
+            {
+                Console.WriteLine($"✅ Found certificate via Azure App Service method: {azureCert.Subject}");
+                return azureCert;
+            }
+
+            // Try CurrentUser store
+            using var userStore = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            userStore.Open(OpenFlags.ReadOnly);
+            Console.WriteLine($"📂 Opened CurrentUser store, found {userStore.Certificates.Count} certificates");
+            
+            var userCertificates = userStore.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false);
+            if (userCertificates.Count > 0)
+            {
+                Console.WriteLine($"✅ Found certificate in CurrentUser store: {userCertificates[0].Subject}");
+                return userCertificates[0];
+            }
+
+            // Try LocalMachine store (may fail on Linux)
+            try
+            {
+                using var machineStore = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+                machineStore.Open(OpenFlags.ReadOnly);
+                Console.WriteLine($"📂 Opened LocalMachine store, found {machineStore.Certificates.Count} certificates");
+                
+                var machineCertificates = machineStore.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false);
+                if (machineCertificates.Count > 0)
+                {
+                    Console.WriteLine($"✅ Found certificate in LocalMachine store: {machineCertificates[0].Subject}");
+                    return machineCertificates[0];
+                }
+            }
+            catch (Exception storeEx)
+            {
+                Console.WriteLine($"⚠️  LocalMachine store access failed (expected on Linux): {storeEx.Message}");
+            }
+
+            Console.WriteLine($"❌ Certificate with thumbprint {thumbprint} not found in any accessible store");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error loading certificate: {ex.Message}");
+            return null;
+        }
+    }
+
+    private X509Certificate2? LoadCertificateFromAzureAppService(string thumbprint)
+    {
+        try
+        {
+            // Azure App Service makes certificates available via environment variables
+            // The format is: WEBSITE_LOAD_USER_PROFILE + specific certificate access
+            var websiteLoadCerts = Environment.GetEnvironmentVariable("WEBSITE_LOAD_CERTIFICATES");
+            Console.WriteLine($"🔧 WEBSITE_LOAD_CERTIFICATES: {websiteLoadCerts}");
+
+            if (string.IsNullOrEmpty(websiteLoadCerts))
+            {
+                Console.WriteLine("❌ WEBSITE_LOAD_CERTIFICATES not set");
+                return null;
+            }
+
+            // In Azure App Service Linux, certificates are loaded into a specific location
+            // Let's try the CurrentUser store with different approaches
+            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadOnly);
+
+            // Sometimes certificates are available but not immediately visible
+            // Force refresh the store
+            store.Close();
+            store.Open(OpenFlags.ReadOnly);
+
+            var allCerts = store.Certificates.Cast<X509Certificate2>().ToList();
+            Console.WriteLine($"🔍 Total certificates in CurrentUser store: {allCerts.Count}");
+            
+            foreach (var cert in allCerts)
+            {
+                Console.WriteLine($"  📋 Available: {cert.Subject} | Thumbprint: {cert.Thumbprint}");
+                if (string.Equals(cert.Thumbprint, thumbprint, StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine($"✅ Match found!");
+                    return cert;
+                }
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Azure App Service certificate loading failed: {ex.Message}");
+            return null;
+        }
     }
 }
 
@@ -117,7 +214,8 @@ public static class CertificateServiceExtensions
         var azureCertificateConfig = configuration.GetSection(AzureCertificateConfiguration.SectionName).Get<AzureCertificateConfiguration>();
 
         // Usar Azure Certificate Service si estamos en Azure y hay configuración
-        if (!string.IsNullOrEmpty(azureCertificateConfig?.ServerCertThumbprint))
+        if (!string.IsNullOrEmpty(azureCertificateConfig?.ServerCertThumbprint) || 
+            !string.IsNullOrEmpty(azureCertificateConfig?.ClientCertThumbprint))
         {
             services.AddSingleton(azureCertificateConfig);
             services.AddSingleton<ICertificateService, AzureCertificateService>();

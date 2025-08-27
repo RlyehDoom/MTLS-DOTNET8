@@ -171,6 +171,7 @@ configure_server_settings() {
             "AzureCertificates__ServerCertThumbprint=$SERVER_CERT_THUMBPRINT" \
             "AzureCertificates__CACertThumbprint=$CA_CERT_THUMBPRINT" \
             "AzureCertificates__ClientCertThumbprint=$CLIENT_CERT_THUMBPRINT" \
+            "WEBSITE_LOAD_CERTIFICATES=*" \
         --output table
     
     echo -e "${GREEN}✅ Server app settings configured${NC}"
@@ -190,6 +191,8 @@ configure_client_settings() {
             "ServerUrl=$SERVER_URL" \
             "AzureCertificates__ClientCertThumbprint=$CLIENT_CERT_THUMBPRINT" \
             "AzureCertificates__ServerCertThumbprint=$SERVER_CERT_THUMBPRINT" \
+            "AzureCertificates__CACertThumbprint=$CA_CERT_THUMBPRINT" \
+            "WEBSITE_LOAD_CERTIFICATES=*" \
         --output table
     
     echo -e "${GREEN}✅ Client app settings configured${NC}"
@@ -207,6 +210,49 @@ enable_client_certificates() {
         --output table
     
     echo -e "${GREEN}✅ Client certificate authentication enabled${NC}"
+}
+
+# Function to configure certificate store access
+configure_certificate_store_access() {
+    echo -e "${YELLOW}🔑 Configuring certificate store access...${NC}"
+    
+    # Enable access to certificate store for both applications
+    echo -e "${BLUE}Enabling certificate store access for server app...${NC}"
+    az webapp config set \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$SERVER_APP_NAME" \
+        --generic-configurations '{"WEBSITE_LOAD_CERTIFICATES": "*"}' \
+        --output table
+    
+    echo -e "${BLUE}Enabling certificate store access for client app...${NC}"
+    az webapp config set \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$CLIENT_APP_NAME" \
+        --generic-configurations '{"WEBSITE_LOAD_CERTIFICATES": "*"}' \
+        --output table
+    
+    echo -e "${GREEN}✅ Certificate store access configured${NC}"
+}
+
+# Function to restart applications
+restart_applications() {
+    echo -e "${YELLOW}🔄 Restarting applications to apply changes...${NC}"
+    
+    echo -e "${BLUE}Restarting server application...${NC}"
+    az webapp restart \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$SERVER_APP_NAME" \
+        --output table
+    
+    echo -e "${BLUE}Restarting client application...${NC}"
+    az webapp restart \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$CLIENT_APP_NAME" \
+        --output table
+    
+    echo -e "${GREEN}✅ Applications restarted${NC}"
+    echo -e "${BLUE}ℹ️  Waiting for applications to fully start...${NC}"
+    sleep 10
 }
 
 # Function to update deployment info without jq
@@ -246,6 +292,12 @@ display_configuration_summary() {
     echo -e "  • Server Cert: ${YELLOW}${SERVER_CERT_THUMBPRINT}${NC}"
     echo -e "  • CA Cert: ${YELLOW}${CA_CERT_THUMBPRINT}${NC}"
     echo -e "  • Client Cert: ${YELLOW}${CLIENT_CERT_THUMBPRINT}${NC}"
+    echo ""
+    echo -e "${BLUE}🔄 Configuration Changes Applied:${NC}"
+    echo -e "  • Client Certificate Mode: ${YELLOW}Required${NC}"
+    echo -e "  • Certificate Store Access: ${YELLOW}Enabled${NC}"
+    echo -e "  • Environment Variables: ${YELLOW}Configured${NC}"
+    echo -e "  • Applications: ${YELLOW}Restarted${NC}"
     echo ""
     echo -e "${BLUE}🔄 Next steps:${NC}"
     echo -e "  1. Deploy server: ${YELLOW}bash 03-deploy-server.sh${NC}"
@@ -292,6 +344,8 @@ main() {
     configure_server_settings
     configure_client_settings
     enable_client_certificates
+    configure_certificate_store_access
+    restart_applications
     update_deployment_info
     display_configuration_summary
 }

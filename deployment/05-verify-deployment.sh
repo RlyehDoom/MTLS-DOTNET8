@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # =============================================================================
 # Script: 05-verify-deployment.sh
 # Description: Verify mTLS deployment and test all functionality
@@ -72,7 +72,13 @@ run_test() {
     
     echo -e "${BLUE}  Testing: $test_name${NC}"
     
-    if eval "$test_command"; then
+    # Execute command with timeout and capture exit code
+    set +e  # Temporarily disable exit on error
+    timeout 30 bash -c "$test_command"
+    local exit_code=$?
+    set -e  # Re-enable exit on error
+    
+    if [[ $exit_code -eq 0 ]]; then
         if [[ "$expected_result" == "pass" ]]; then
             echo -e "${GREEN}  ✅ $test_name - PASSED${NC}"
             ((PASSED_TESTS++))
@@ -82,6 +88,10 @@ run_test() {
             ((FAILED_TESTS++))
             return 1
         fi
+    elif [[ $exit_code -eq 124 ]]; then
+        echo -e "${RED}  ❌ $test_name - TIMEOUT${NC}"
+        ((FAILED_TESTS++))
+        return 1
     else
         if [[ "$expected_result" == "fail" ]]; then
             echo -e "${GREEN}  ✅ $test_name - EXPECTED FAILURE${NC}"

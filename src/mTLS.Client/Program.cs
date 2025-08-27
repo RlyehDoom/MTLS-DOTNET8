@@ -82,18 +82,10 @@ else
     // Production mode - Azure App Service configuration
     Console.WriteLine("Running in Production mode - Azure App Service");
     
-    // Get Azure port from environment variable
-    var azurePort = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-    Console.WriteLine($"Azure App Service Port: {azurePort}");
-    
-    builder.WebHost.ConfigureKestrel((context, serverOptions) =>
-    {
-        // Listen on Azure provided port (HTTP only - Azure Load Balancer handles HTTPS termination)
-        serverOptions.Listen(IPAddress.Any, int.Parse(azurePort));
-        
-        Console.WriteLine($"Production mode - Listening on port {azurePort} (HTTP)");
-        Console.WriteLine("HTTPS termination handled by Azure Load Balancer");
-    });
+    // In Azure App Service, let Azure handle the port binding
+    // Azure automatically configures Kestrel with the correct port
+    Console.WriteLine("HTTPS termination handled by Azure Load Balancer");
+    Console.WriteLine("Port configuration handled by Azure App Service");
 }
 
 // Add HttpClient for mTLS testing
@@ -157,11 +149,28 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Serve static files from current directory (root) in Azure
+app.UseDefaultFiles(new DefaultFilesOptions
+{
+    DefaultFileNames = { "index.html" }
+});
+
+app.UseStaticFiles(); // Serves from wwwroot by default
+
+// Also serve static files from root directory for Azure deployment
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(builder.Environment.ContentRootPath)),
+    RequestPath = ""
+});
+
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Client test endpoints
-app.MapGet("/", () => "mTLS Test Client - Use /test-server to test mTLS connection");
+// Client test endpoints - root path serves static index.html
+// app.MapGet("/", () => "mTLS Test Client - Use /test-server to test mTLS connection");
 
 app.MapGet("/test-server", async (IHttpClientFactory httpClientFactory) =>
 {
@@ -208,20 +217,42 @@ app.MapGet("/test-server", async (IHttpClientFactory httpClientFactory) =>
     });
 });
 
-app.MapGet("/cert-info", (ICertificateService certificateService) =>
+app.MapGet("/cert-info", (ICertificateService certificateService, IConfiguration configuration) =>
 {
-    var clientCert = certificateService.LoadClientCertificate();
-    
-    if (clientCert != null)
+    var result = new
     {
-        return Results.Ok(new
+        ServiceType = certificateService.GetType().Name,
+        AzureConfig = configuration.GetSection("AzureCertificates").Get<AzureCertificateConfiguration>(),
+        LocalConfig = configuration.GetSection("Certificates").Get<CertificateConfiguration>(),
+        Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+        CertStoreAccess = Environment.GetEnvironmentVariable("WEBSITE_LOAD_CERTIFICATES"),
+        ClientCertificate = (object?)null,
+        Debug = new List<string>()
+    };
+    
+    try 
+    {
+        var clientCert = certificateService.LoadClientCertificate();
+        
+        if (clientCert != null)
         {
-            ClientCertificate = CertificateInfo.FromX509Certificate(clientCert),
-            Message = "Client certificate loaded successfully"
-        });
+            result = result with 
+            { 
+                ClientCertificate = CertificateInfo.FromX509Certificate(clientCert),
+                Debug = new List<string> { "Certificate loaded successfully" }
+            };
+        }
+        else
+        {
+            ((List<string>)result.Debug).Add("No certificate found");
+        }
+    }
+    catch (Exception ex)
+    {
+        ((List<string>)result.Debug).Add($"Error loading certificate: {ex.Message}");
     }
     
-    return Results.BadRequest(new { Message = "No client certificate available" });
+    return Results.Ok(result);
 });
 
 Console.WriteLine("Starting mTLS Test Client...");

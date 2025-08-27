@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mTLS Client - Testing Guide</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            line-height: 1.6; 
+            color: #333; 
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: white; 
+            border-radius: 10px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header { 
+            background: #e74c3c; 
+            color: white; 
+            padding: 2rem; 
+            text-align: center; 
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 0.5rem; }
+        .header p { font-size: 1.2em; opacity: 0.9; }
+        .content { padding: 2rem; }
+        .section { margin-bottom: 2rem; }
+        .section h2 { 
+            color: #e74c3c; 
+            border-bottom: 3px solid #f39c12; 
+            padding-bottom: 0.5rem; 
+            margin-bottom: 1rem; 
+        }
+        .command-box { 
+            background: #2c3e50; 
+            color: #ecf0f1; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            font-family: 'Courier New', monospace; 
+            margin: 0.5rem 0; 
+            overflow-x: auto;
+            position: relative;
+        }
+        .command-box::before {
+            content: '$ ';
+            color: #f39c12;
+            font-weight: bold;
+        }
+        .endpoint { 
+            background: #ecf0f1; 
+            padding: 1rem; 
+            border-left: 4px solid #f39c12; 
+            margin: 0.5rem 0; 
+            border-radius: 0 5px 5px 0;
+        }
+        .endpoint h3 { color: #2c3e50; margin-bottom: 0.5rem; }
+        .endpoint .method { 
+            display: inline-block; 
+            background: #f39c12; 
+            color: white; 
+            padding: 0.2rem 0.5rem; 
+            border-radius: 3px; 
+            font-size: 0.8em; 
+            margin-right: 0.5rem; 
+        }
+        .mtls-test { border-left-color: #e74c3c; }
+        .mtls-test .method { background: #e74c3c; }
+        .info-box { 
+            background: #f39c12; 
+            color: white; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            margin: 1rem 0; 
+        }
+        .warning-box { 
+            background: #e67e22; 
+            color: white; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            margin: 1rem 0; 
+        }
+        .success-box { 
+            background: #27ae60; 
+            color: white; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            margin: 1rem 0; 
+        }
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); 
+            gap: 1rem; 
+        }
+        .copy-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #f39c12;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+        .copy-btn:hover { background: #e67e22; }
+        .server-info {
+            background: #3498db;
+            color: white;
+            padding: 1rem;
+            border-radius: 5px;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔄 mTLS Client</h1>
+            <p>Client Application for Testing mTLS Server Communication</p>
+        </div>
+        
+        <div class="content">
+            <div class="info-box">
+                <h3>🌐 Client URL:</h3>
+                <p><strong>https://mtls-client-529349d5.azurewebsites.net</strong></p>
+            </div>
+
+            <div class="server-info">
+                <h3>🎯 Target Server:</h3>
+                <p><strong>https://mtls-server-529349d5.azurewebsites.net</strong></p>
+                <p>This client is configured to communicate with the above mTLS server.</p>
+            </div>
+
+            <div class="section">
+                <h2>📋 Available Endpoints</h2>
+                <div class="grid">
+                    <div class="endpoint">
+                        <h3><span class="method">GET</span>/</h3>
+                        <p><strong>Home page</strong> - Client information and status</p>
+                    </div>
+                    <div class="endpoint">
+                        <h3><span class="method">GET</span>/cert-info</h3>
+                        <p><strong>Certificate info</strong> - Display client certificate details</p>
+                    </div>
+                    <div class="endpoint mtls-test">
+                        <h3><span class="method">GET</span>/test-server</h3>
+                        <p><strong>mTLS Test</strong> - Test communication with mTLS server</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🧪 Test Commands</h2>
+                
+                <h3>✅ Client Endpoints</h3>
+                <div class="command-box">
+                    curl https://mtls-client-529349d5.azurewebsites.net/
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <p><em>Get client application information</em></p>
+
+                <div class="command-box">
+                    curl https://mtls-client-529349d5.azurewebsites.net/cert-info
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <p><em>View client certificate information</em></p>
+
+                <div class="command-box">
+                    curl https://mtls-client-529349d5.azurewebsites.net/test-server
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <p><em>Test mTLS communication with the server (most important test)</em></p>
+            </div>
+
+            <div class="section">
+                <h2>🔍 HTTP/2 and Security Testing</h2>
+                
+                <h3>HTTP/2 Support</h3>
+                <div class="command-box">
+                    curl -I --http2 https://mtls-client-529349d5.azurewebsites.net/
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                
+                <h3>Security Headers</h3>
+                <div class="command-box">
+                    curl -I -v https://mtls-client-529349d5.azurewebsites.net/
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                
+                <h3>SSL Certificate Analysis</h3>
+                <div class="command-box">
+                    openssl s_client -connect mtls-client-529349d5.azurewebsites.net:443
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🔄 End-to-End mTLS Flow Test</h2>
+                <div class="warning-box">
+                    <h4>🎯 Complete mTLS Test Sequence</h4>
+                    <p>Run these commands in sequence to verify the complete mTLS communication flow:</p>
+                </div>
+                
+                <h4>1. Test Client Application Health</h4>
+                <div class="command-box">
+                    curl -s https://mtls-client-529349d5.azurewebsites.net/ | head -n 20
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+
+                <h4>2. Check Client Certificate Info</h4>
+                <div class="command-box">
+                    curl -s https://mtls-client-529349d5.azurewebsites.net/cert-info
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+
+                <h4>3. Execute mTLS Server Communication Test</h4>
+                <div class="command-box">
+                    curl -s https://mtls-client-529349d5.azurewebsites.net/test-server
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <div class="success-box">
+                    <strong>✅ Expected Result:</strong> If mTLS is working correctly, this should return a JSON response 
+                    with information about the successful mTLS handshake and server response.
+                </div>
+
+                <h4>4. Test with JSON Pretty Print</h4>
+                <div class="command-box">
+                    curl -s https://mtls-client-529349d5.azurewebsites.net/test-server | python -m json.tool
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📜 Certificate Configuration</h2>
+                <div class="grid">
+                    <div class="info-box">
+                        <h4>Client Certificate</h4>
+                        <p><strong>Thumbprint:</strong> 73343E44714272405A90A542938F6C38080DCD14</p>
+                        <p>Used by this client to authenticate with the mTLS server</p>
+                    </div>
+                    <div class="info-box">
+                        <h4>Server Certificate</h4>
+                        <p><strong>Thumbprint:</strong> FE9B47015AF89E0F59F96AA6F8752C9911632DB1</p>
+                        <p>Expected from the mTLS server during handshake</p>
+                    </div>
+                    <div class="info-box">
+                        <h4>CA Certificate</h4>
+                        <p><strong>Thumbprint:</strong> 97B4DF5826144584D2409EA89E7C4BC847764D4B</p>
+                        <p>Certificate Authority that signed both client and server certificates</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🎯 Testing Scenarios</h2>
+                
+                <div class="grid">
+                    <div class="endpoint">
+                        <h3>✅ Success Case</h3>
+                        <p>Client successfully authenticates with server using mTLS</p>
+                        <p><strong>Command:</strong> <code>/test-server</code></p>
+                        <p><strong>Expected:</strong> JSON with server response and certificate info</p>
+                    </div>
+                    
+                    <div class="endpoint mtls-test">
+                        <h3>⚠️ Certificate Issues</h3>
+                        <p>If certificates are not properly configured in Azure</p>
+                        <p><strong>Symptoms:</strong> SSL handshake errors, 403 Forbidden</p>
+                        <p><strong>Check:</strong> Azure Certificate Store configuration</p>
+                    </div>
+                    
+                    <div class="endpoint">
+                        <h3>🔍 Network Issues</h3>
+                        <p>Connection problems between client and server</p>
+                        <p><strong>Symptoms:</strong> Timeout errors, DNS resolution issues</p>
+                        <p><strong>Check:</strong> Network connectivity, firewall rules</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📊 Response Analysis</h2>
+                <div class="success-box">
+                    <h4>🔍 What to Look For</h4>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>HTTP Status:</strong> 200 OK indicates successful mTLS communication</li>
+                        <li><strong>Certificate Info:</strong> Response should include client certificate details</li>
+                        <li><strong>Server Data:</strong> Successful API call to protected server endpoint</li>
+                        <li><strong>Headers:</strong> Security headers should be present (HSTS, etc.)</li>
+                        <li><strong>HTTP/2:</strong> Modern protocol support verification</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🔗 Related Services</h2>
+                <div class="server-info">
+                    <h4>mTLS Server Application</h4>
+                    <p><strong>URL:</strong> <a href="https://mtls-server-529349d5.azurewebsites.net" target="_blank" style="color: white; text-decoration: underline;">https://mtls-server-529349d5.azurewebsites.net</a></p>
+                    <p>The target server that this client communicates with using mutual TLS authentication.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function copyToClipboard(button) {
+            const command = button.parentElement.textContent.trim().replace('Copy', '');
+            navigator.clipboard.writeText(command).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.background = '#27ae60';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#f39c12';
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

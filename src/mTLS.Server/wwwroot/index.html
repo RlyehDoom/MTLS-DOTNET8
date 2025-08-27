@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mTLS Server - Testing Guide</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            line-height: 1.6; 
+            color: #333; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: white; 
+            border-radius: 10px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header { 
+            background: #2c3e50; 
+            color: white; 
+            padding: 2rem; 
+            text-align: center; 
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 0.5rem; }
+        .header p { font-size: 1.2em; opacity: 0.9; }
+        .content { padding: 2rem; }
+        .section { margin-bottom: 2rem; }
+        .section h2 { 
+            color: #2c3e50; 
+            border-bottom: 3px solid #3498db; 
+            padding-bottom: 0.5rem; 
+            margin-bottom: 1rem; 
+        }
+        .command-box { 
+            background: #2c3e50; 
+            color: #ecf0f1; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            font-family: 'Courier New', monospace; 
+            margin: 0.5rem 0; 
+            overflow-x: auto;
+            position: relative;
+        }
+        .command-box::before {
+            content: '$ ';
+            color: #3498db;
+            font-weight: bold;
+        }
+        .endpoint { 
+            background: #ecf0f1; 
+            padding: 1rem; 
+            border-left: 4px solid #3498db; 
+            margin: 0.5rem 0; 
+            border-radius: 0 5px 5px 0;
+        }
+        .endpoint h3 { color: #2c3e50; margin-bottom: 0.5rem; }
+        .endpoint .method { 
+            display: inline-block; 
+            background: #3498db; 
+            color: white; 
+            padding: 0.2rem 0.5rem; 
+            border-radius: 3px; 
+            font-size: 0.8em; 
+            margin-right: 0.5rem; 
+        }
+        .mtls-protected { border-left-color: #e74c3c; }
+        .mtls-protected .method { background: #e74c3c; }
+        .info-box { 
+            background: #3498db; 
+            color: white; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            margin: 1rem 0; 
+        }
+        .warning-box { 
+            background: #f39c12; 
+            color: white; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            margin: 1rem 0; 
+        }
+        .success-box { 
+            background: #27ae60; 
+            color: white; 
+            padding: 1rem; 
+            border-radius: 5px; 
+            margin: 1rem 0; 
+        }
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); 
+            gap: 1rem; 
+        }
+        .copy-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+        .copy-btn:hover { background: #2980b9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔒 mTLS Server</h1>
+            <p>Mutual TLS Authentication Testing Guide</p>
+        </div>
+        
+        <div class="content">
+            <div class="info-box">
+                <h3>🌐 Server URL:</h3>
+                <p><strong>https://mtls-server-529349d5.azurewebsites.net</strong></p>
+            </div>
+
+            <div class="section">
+                <h2>📋 Available Endpoints</h2>
+                <div class="grid">
+                    <div class="endpoint">
+                        <h3><span class="method">GET</span>/health</h3>
+                        <p><strong>Public endpoint</strong> - Health check, no certificate required</p>
+                    </div>
+                    <div class="endpoint">
+                        <h3><span class="method">GET</span>/weatherforecast</h3>
+                        <p><strong>Public endpoint</strong> - Weather API, no certificate required</p>
+                    </div>
+                    <div class="endpoint mtls-protected">
+                        <h3><span class="method">GET</span>/mtls-test</h3>
+                        <p><strong>mTLS Protected</strong> - Requires valid client certificate</p>
+                    </div>
+                    <div class="endpoint">
+                        <h3><span class="method">GET</span>/swagger</h3>
+                        <p><strong>API Documentation</strong> - Swagger UI interface</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🧪 Test Commands</h2>
+                
+                <h3>✅ Public Endpoints (No Certificate Required)</h3>
+                <div class="command-box">
+                    curl -I https://mtls-server-529349d5.azurewebsites.net/health
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <div class="command-box">
+                    curl https://mtls-server-529349d5.azurewebsites.net/weatherforecast
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <div class="command-box">
+                    curl -I --http2 https://mtls-server-529349d5.azurewebsites.net/health
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+
+                <h3>🔒 mTLS Protected Endpoints (Requires Client Certificate)</h3>
+                <div class="warning-box">
+                    <strong>⚠️ Note:</strong> These commands will fail without a valid client certificate. 
+                    The server is configured to require client certificates for the /mtls-test endpoint.
+                </div>
+                
+                <div class="command-box">
+                    curl https://mtls-server-529349d5.azurewebsites.net/mtls-test
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <p><em>Expected result: HTTP 403 or SSL handshake failure</em></p>
+
+                <div class="command-box">
+                    curl --cert client.pem --key client.key https://mtls-server-529349d5.azurewebsites.net/mtls-test
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <p><em>With valid client certificate: HTTP 200 with mTLS confirmation</em></p>
+            </div>
+
+            <div class="section">
+                <h2>🔍 Security Testing</h2>
+                
+                <h3>SSL/TLS Configuration</h3>
+                <div class="command-box">
+                    openssl s_client -connect mtls-server-529349d5.azurewebsites.net:443 -servername mtls-server-529349d5.azurewebsites.net
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                
+                <h3>HTTP Headers Analysis</h3>
+                <div class="command-box">
+                    curl -I -v https://mtls-server-529349d5.azurewebsites.net/health
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                
+                <h3>HTTP/2 Support Verification</h3>
+                <div class="command-box">
+                    curl -I --http2-prior-knowledge https://mtls-server-529349d5.azurewebsites.net/health
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📜 Certificate Information</h2>
+                <div class="grid">
+                    <div class="info-box">
+                        <h4>Server Certificate</h4>
+                        <p><strong>Thumbprint:</strong> FE9B47015AF89E0F59F96AA6F8752C9911632DB1</p>
+                    </div>
+                    <div class="info-box">
+                        <h4>CA Certificate</h4>
+                        <p><strong>Thumbprint:</strong> 97B4DF5826144584D2409EA89E7C4BC847764D4B</p>
+                    </div>
+                    <div class="info-box">
+                        <h4>Expected Client Certificate</h4>
+                        <p><strong>Thumbprint:</strong> 73343E44714272405A90A542938F6C38080DCD14</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🔗 Related Services</h2>
+                <div class="success-box">
+                    <h4>Client Application</h4>
+                    <p><strong>URL:</strong> <a href="https://mtls-client-529349d5.azurewebsites.net" target="_blank" style="color: white; text-decoration: underline;">https://mtls-client-529349d5.azurewebsites.net</a></p>
+                    <p>Use the client application to test mTLS communication with this server.</p>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📊 Expected Responses</h2>
+                <div class="grid">
+                    <div class="endpoint">
+                        <h3>✅ /health</h3>
+                        <p><strong>Status:</strong> 200 OK<br>
+                        <strong>Response:</strong> "Healthy"</p>
+                    </div>
+                    <div class="endpoint">
+                        <h3>✅ /weatherforecast</h3>
+                        <p><strong>Status:</strong> 200 OK<br>
+                        <strong>Response:</strong> JSON array of weather data</p>
+                    </div>
+                    <div class="endpoint mtls-protected">
+                        <h3>🔒 /mtls-test</h3>
+                        <p><strong>Without cert:</strong> 403 Forbidden<br>
+                        <strong>With cert:</strong> 200 OK + client cert info</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function copyToClipboard(button) {
+            const command = button.parentElement.textContent.trim().replace('Copy', '');
+            navigator.clipboard.writeText(command).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.background = '#27ae60';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#3498db';
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

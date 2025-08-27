@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.HttpOverrides;
 using mTLS.Shared.Models;
 using mTLS.Shared.Services;
+using mTLS.Server.Services;
 using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,33 +36,18 @@ if (builder.Environment.IsDevelopment() || builder.Environment.IsProduction())
     });
 }
 
-// Configure certificate authentication
-builder.Services.AddAuthentication(CertificateAuthenticationDefaults.AuthenticationScheme)
-    .AddCertificate(options =>
-    {
-        options.AllowedCertificateTypes = CertificateTypes.All;
-        options.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck;
-        options.ValidateCertificateUse = false;
-        options.ValidateValidityPeriod = false;
-        
-        options.Events = new CertificateAuthenticationEvents
-        {
-            OnCertificateValidated = context =>
-            {
-                Console.WriteLine($"Client certificate validated: {context.ClientCertificate.Subject}");
-                context.Success();
-                return Task.CompletedTask;
-            },
-            OnAuthenticationFailed = context =>
-            {
-                Console.WriteLine($"Certificate authentication failed: {context.Exception?.Message}");
-                context.Fail("Certificate authentication failed");
-                return Task.CompletedTask;
-            }
-        };
-    });
+// Configure authentication - Azure App Service handles TLS termination
+// We'll validate certificates manually from X-ARR-ClientCert header
+builder.Services.AddAuthentication("Bearer")
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, AzureAppServiceAuthenticationHandler>(
+        "Bearer", options => { });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Policy for mTLS endpoints - requires valid client certificate
+    options.AddPolicy("RequireClientCertificate", policy =>
+        policy.RequireAuthenticatedUser());
+});
 
 // Configure Kestrel for local development only
 if (builder.Environment.IsDevelopment())
@@ -119,18 +105,10 @@ else
     // Production mode - Azure App Service configuration
     Console.WriteLine("Running in Production mode - Azure App Service");
     
-    // Get Azure port from environment variable
-    var azurePort = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-    Console.WriteLine($"Azure App Service Port: {azurePort}");
-    
-    builder.WebHost.ConfigureKestrel((context, serverOptions) =>
-    {
-        // Listen on Azure provided port (HTTP only - Azure Load Balancer handles HTTPS termination)
-        serverOptions.Listen(IPAddress.Any, int.Parse(azurePort));
-        
-        Console.WriteLine($"Production mode - Listening on port {azurePort} (HTTP)");
-        Console.WriteLine("HTTPS termination handled by Azure Load Balancer");
-    });
+    // In Azure App Service, let Azure handle the port binding
+    // Azure automatically configures Kestrel with the correct port
+    Console.WriteLine("HTTPS termination handled by Azure Load Balancer");
+    Console.WriteLine("Port configuration handled by Azure App Service");
 }
 
 var app = builder.Build();
@@ -151,6 +129,22 @@ else
 }
 
 app.UseHttpsRedirection();
+
+// Serve static files from current directory (root) in Azure
+app.UseDefaultFiles(new DefaultFilesOptions
+{
+    DefaultFileNames = { "index.html" }
+});
+
+app.UseStaticFiles(); // Serves from wwwroot by default
+
+// Also serve static files from root directory for Azure deployment
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(builder.Environment.ContentRootPath)),
+    RequestPath = ""
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -183,23 +177,27 @@ app.MapGet("/weatherforecast", () =>
 .WithName("GetWeatherForecast")
 .WithOpenApi();
 
-// mTLS test endpoint (requires client certificate)
-app.MapGet("/mtls-test", (HttpContext context) =>
+// mTLS test endpoint (requires client certificate from Azure header)
+app.MapGet("/mtls-test", (HttpContext context, ICertificateService certificateService) =>
 {
-    var clientCert = context.Connection.ClientCertificate;
+    // Get client certificate from Azure App Service header
+    var clientCert = AzureAppServiceCertificateHandler.GetClientCertificateFromHeader(context);
     
     if (clientCert != null)
     {
         return Results.Ok(new mTLSTestResponse
         {
-            Message = "mTLS connection successful!",
+            Message = "mTLS connection successful via Azure App Service!",
             ClientCertificate = CertificateInfo.FromX509Certificate(clientCert),
             Timestamp = DateTime.UtcNow
         });
     }
     
-    return Results.BadRequest(new { Message = "No client certificate provided" });
-}).RequireAuthorization();
+    return Results.BadRequest(new { 
+        Message = "No client certificate provided", 
+        Info = "Client certificate should be forwarded by Azure App Service in X-ARR-ClientCert header" 
+    });
+}).RequireAuthorization("RequireClientCertificate");
 
 Console.WriteLine("Starting mTLS API server...");
 Console.WriteLine("Endpoints available:");

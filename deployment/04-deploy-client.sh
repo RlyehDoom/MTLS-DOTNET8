@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # =============================================================================
 # Script: 04-deploy-client.sh
 # Description: Build and deploy mTLS Client application to Azure
@@ -81,6 +81,22 @@ check_prerequisites() {
 clean_previous_builds() {
     echo -e "${YELLOW}🧹 Cleaning previous builds...${NC}"
     
+    cd "$CLIENT_PROJECT_PATH"
+    
+    # Clean build artifacts first
+    dotnet clean --configuration Release --verbosity quiet || true
+    
+    # Remove bin and obj directories
+    if [[ -d "bin" ]]; then
+        rm -rf bin
+        echo -e "${BLUE}  • Removed bin directory${NC}"
+    fi
+    
+    if [[ -d "obj" ]]; then
+        rm -rf obj  
+        echo -e "${BLUE}  • Removed obj directory${NC}"
+    fi
+    
     if [[ -d "$PUBLISH_DIR" ]]; then
         rm -rf "$PUBLISH_DIR"
         echo -e "${BLUE}  • Removed previous publish directory${NC}"
@@ -91,10 +107,6 @@ clean_previous_builds() {
         echo -e "${BLUE}  • Removed previous deployment package${NC}"
     fi
     
-    # Clean build artifacts
-    cd "$CLIENT_PROJECT_PATH"
-    dotnet clean --configuration Release --verbosity quiet
-    
     echo -e "${GREEN}✅ Cleanup completed${NC}"
 }
 
@@ -103,7 +115,13 @@ restore_dependencies() {
     echo -e "${YELLOW}📦 Restoring NuGet packages...${NC}"
     
     cd "$CLIENT_PROJECT_PATH"
-    dotnet restore --verbosity quiet
+    
+    # Clear NuGet cache if restore fails
+    if ! dotnet restore --verbosity quiet; then
+        echo -e "${YELLOW}⚠️  Initial restore failed, clearing NuGet cache and retrying...${NC}"
+        dotnet nuget locals all --clear
+        dotnet restore --verbosity minimal --force
+    fi
     
     echo -e "${GREEN}✅ Dependencies restored${NC}"
 }
@@ -147,17 +165,77 @@ create_deployment_package() {
     
     cd "$PUBLISH_DIR"
     
-    # Create zip file
-    if command -v zip &> /dev/null; then
-        zip -r "$DEPLOYMENT_ZIP" . -q
+    # For Azure App Service, move wwwroot contents to root level
+    # This allows ASP.NET Core to serve static files from the root alongside API endpoints
+    if [[ -d "wwwroot" ]]; then
+        echo -e "${BLUE}📁 wwwroot contents found:${NC}"
+        ls -la wwwroot/ | head -5
+        
+        # Move wwwroot contents to root level
+        echo -e "${BLUE}📦 Moving wwwroot contents to root level for Azure deployment...${NC}"
+        if [[ -n "$(ls -A wwwroot/ 2>/dev/null)" ]]; then
+            # Only move if wwwroot has content and won't overwrite existing files
+            for file in wwwroot/*; do
+                if [[ -f "$file" ]]; then
+                    filename=$(basename "$file")
+                    if [[ ! -f "$filename" ]]; then
+                        mv "$file" .
+                        echo -e "${BLUE}  • Moved $filename to root${NC}"
+                    else
+                        echo -e "${YELLOW}  • Skipped $filename (already exists in root)${NC}"
+                    fi
+                fi
+            done
+            
+            # Remove empty wwwroot directory
+            if [[ -z "$(ls -A wwwroot/ 2>/dev/null)" ]]; then
+                rmdir wwwroot
+                echo -e "${BLUE}  • Removed empty wwwroot directory${NC}"
+            fi
+        fi
+        echo -e "${GREEN}✅ Static files prepared for root-level serving${NC}"
     else
-        # Fallback for systems without zip command
-        tar -czf "${DEPLOYMENT_ZIP%.zip}.tar.gz" .
-        DEPLOYMENT_ZIP="${DEPLOYMENT_ZIP%.zip}.tar.gz"
+        echo -e "${YELLOW}⚠️  wwwroot directory not found in publish output${NC}"
     fi
     
-    # Get package size
+    # List contents for verification
+    echo -e "${BLUE}📁 Package contents:${NC}"
+    ls -la | head -10
+    
+    # Create zip file - Azure App Service requires ZIP format
+    if command -v zip &> /dev/null; then
+        # Include all files and directories recursively
+        zip -r "$DEPLOYMENT_ZIP" . -q
+        echo -e "${BLUE}📦 Created ZIP package with all files${NC}"
+    elif command -v 7z &> /dev/null; then
+        # Use 7-Zip if available
+        7z a "$DEPLOYMENT_ZIP" . -r > /dev/null
+        echo -e "${BLUE}📦 Created ZIP package with 7-Zip${NC}"
+    else
+        # Try using PowerShell on Windows
+        if [[ "$OS" == "Windows_NT" ]]; then
+            powershell.exe -Command "Compress-Archive -Path '.\*' -DestinationPath '$DEPLOYMENT_ZIP' -Force"
+            echo -e "${BLUE}📦 Created ZIP package with PowerShell${NC}"
+        else
+            echo -e "${RED}❌ No ZIP utility found. Please install zip, 7z, or use Windows${NC}"
+            exit 1
+        fi
+    fi
+    
+    # Get package size and verify contents
     PACKAGE_SIZE=$(du -h "$DEPLOYMENT_ZIP" | cut -f1)
+    
+    # Verify ZIP contents
+    if command -v zip &> /dev/null && [[ "$DEPLOYMENT_ZIP" == *.zip ]]; then
+        echo -e "${BLUE}🔍 Verifying ZIP contents:${NC}"
+        if zip -T "$DEPLOYMENT_ZIP" > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ ZIP file integrity verified${NC}"
+            # Show sample of contents
+            unzip -l "$DEPLOYMENT_ZIP" | grep -E "(index\.html|\.dll|\.json)" | head -3 || echo -e "${YELLOW}⚠️  No expected files found in ZIP${NC}"
+        else
+            echo -e "${RED}❌ ZIP file integrity check failed${NC}"
+        fi
+    fi
     
     echo -e "${GREEN}✅ Deployment package created: ${CYAN}$DEPLOYMENT_ZIP${NC} (${PACKAGE_SIZE})"
 }
