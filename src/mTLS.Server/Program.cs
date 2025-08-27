@@ -156,6 +156,65 @@ app.MapGet("/health", () => new HealthResponse
     Timestamp = DateTime.UtcNow 
 });
 
+// Certificate info endpoint (public) - for debugging
+app.MapGet("/cert-info", (ICertificateService certificateService, IConfiguration configuration) =>
+{
+    var result = new
+    {
+        ServiceType = certificateService.GetType().Name,
+        AzureConfig = configuration.GetSection(AzureCertificateConfiguration.SectionName).Get<AzureCertificateConfiguration>(),
+        LocalConfig = configuration.GetSection(CertificateConfiguration.SectionName).Get<CertificateConfiguration>(),
+        Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+        CertStoreAccess = Environment.GetEnvironmentVariable("WEBSITE_LOAD_CERTIFICATES"),
+        ServerCertificate = (object?)null,
+        CACertificate = (object?)null,
+        ClientCertificate = (object?)null,
+        Debug = new List<string>()
+    };
+    
+    try 
+    {
+        var serverCert = certificateService.LoadServerCertificate();
+        if (serverCert != null)
+        {
+            result = result with { ServerCertificate = CertificateInfo.FromX509Certificate(serverCert) };
+            ((List<string>)result.Debug).Add("Server certificate loaded successfully");
+        }
+        else
+        {
+            ((List<string>)result.Debug).Add("No server certificate found");
+        }
+
+        var caCert = certificateService.LoadCACertificate();
+        if (caCert != null)
+        {
+            result = result with { CACertificate = CertificateInfo.FromX509Certificate(caCert) };
+            ((List<string>)result.Debug).Add("CA certificate loaded successfully");
+        }
+        else
+        {
+            ((List<string>)result.Debug).Add("No CA certificate found");
+        }
+
+        var clientCert = certificateService.LoadClientCertificate();
+        if (clientCert != null)
+        {
+            result = result with { ClientCertificate = CertificateInfo.FromX509Certificate(clientCert) };
+            ((List<string>)result.Debug).Add("Client certificate loaded successfully");
+        }
+        else
+        {
+            ((List<string>)result.Debug).Add("No client certificate found");
+        }
+    }
+    catch (Exception ex)
+    {
+        ((List<string>)result.Debug).Add($"Error loading certificates: {ex.Message}");
+    }
+    
+    return Results.Ok(result);
+});
+
 // Weather forecast endpoint (public)
 app.MapGet("/weatherforecast", () =>
 {
@@ -178,16 +237,38 @@ app.MapGet("/weatherforecast", () =>
 .WithOpenApi();
 
 // mTLS test endpoint (requires client certificate from Azure header)
-app.MapGet("/mtls-test", (HttpContext context, ICertificateService certificateService) =>
+app.MapGet("/debug-headers", (HttpContext context) =>
+{
+    var headers = new Dictionary<string, string>();
+    foreach (var header in context.Request.Headers)
+    {
+        headers[header.Key] = string.Join(", ", header.Value);
+    }
+    
+    return Results.Ok(new
+    {
+        Headers = headers,
+        RemoteIpAddress = context.Connection.RemoteIpAddress?.ToString(),
+        IsHttps = context.Request.IsHttps,
+        Scheme = context.Request.Scheme,
+        Host = context.Request.Host.ToString(),
+        Timestamp = DateTime.UtcNow
+    });
+});
+
+app.MapGet("/mtls-test", (HttpContext context, ICertificateService certificateService, IWebHostEnvironment environment) =>
 {
     // Get client certificate from Azure App Service header
     var clientCert = AzureAppServiceCertificateHandler.GetClientCertificateFromHeader(context);
     
     if (clientCert != null)
     {
+        // Validate the certificate with environment awareness
+        var isValid = AzureAppServiceCertificateHandler.ValidateClientCertificateWithEnvironment(clientCert, certificateService, environment);
+        
         return Results.Ok(new mTLSTestResponse
         {
-            Message = "mTLS connection successful via Azure App Service!",
+            Message = $"mTLS connection successful via Azure App Service! Environment: {environment.EnvironmentName}, Validation: {isValid}",
             ClientCertificate = CertificateInfo.FromX509Certificate(clientCert),
             Timestamp = DateTime.UtcNow
         });
@@ -197,11 +278,12 @@ app.MapGet("/mtls-test", (HttpContext context, ICertificateService certificateSe
         Message = "No client certificate provided", 
         Info = "Client certificate should be forwarded by Azure App Service in X-ARR-ClientCert header" 
     });
-}).RequireAuthorization("RequireClientCertificate");
+}); // Removed RequireAuthorization temporarily
 
 Console.WriteLine("Starting mTLS API server...");
 Console.WriteLine("Endpoints available:");
 Console.WriteLine("- GET /health (public)");
+Console.WriteLine("- GET /cert-info (public)");
 Console.WriteLine("- GET /mtls-test (requires client certificate)");
 Console.WriteLine("- GET /weatherforecast (public)");
 

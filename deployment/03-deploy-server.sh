@@ -150,6 +150,49 @@ publish_server_project() {
     echo -e "${GREEN}✅ Server project published to: $PUBLISH_DIR${NC}"
 }
 
+# Function to prepare certificates and static files
+prepare_deployment_files() {
+    echo -e "${YELLOW}📁 Preparing deployment files...${NC}"
+    
+    cd "$PUBLISH_DIR"
+    
+    # Check for nested publish directory and fix if found
+    if [[ -d "publish" ]]; then
+        echo -e "${YELLOW}⚠️  Found nested publish directory, fixing deployment structure...${NC}"
+        
+        # Move all files from nested publish to current level
+        if [[ -n "$(ls -A publish/ 2>/dev/null)" ]]; then
+            mv publish/* . 2>/dev/null || true
+            rmdir publish 2>/dev/null || true
+            echo -e "${BLUE}  • Fixed nested publish directory structure${NC}"
+        fi
+    fi
+    
+    # Copy certificate files for fallback support
+    echo -e "${BLUE}📄 Copying certificate files for Azure fallback...${NC}"
+    if [[ ! -d "Certs" ]]; then
+        mkdir -p Certs
+    fi
+    
+    # Copy PFX certificates from source
+    if [[ -f "$SERVER_PROJECT_PATH/Certs/dev-env.pfx" ]]; then
+        cp "$SERVER_PROJECT_PATH/Certs/dev-env.pfx" Certs/
+        echo -e "${BLUE}  • Copied server certificate${NC}"
+    fi
+    
+    if [[ -f "$SERVER_PROJECT_PATH/Certs/dev-env_client.pfx" ]]; then
+        cp "$SERVER_PROJECT_PATH/Certs/dev-env_client.pfx" Certs/
+        echo -e "${BLUE}  • Copied client certificate${NC}"
+    fi
+    
+    if [[ -f "$SERVER_PROJECT_PATH/Certs/ca.crt" ]]; then
+        cp "$SERVER_PROJECT_PATH/Certs/ca.crt" Certs/
+        echo -e "${BLUE}  • Copied CA certificate${NC}"
+    fi
+    
+    echo -e "${GREEN}✅ Certificate files prepared for deployment${NC}"
+}
+
 # Function to create deployment package
 create_deployment_package() {
     echo -e "${YELLOW}📦 Creating deployment package...${NC}"
@@ -187,11 +230,29 @@ create_deployment_package() {
         echo -e "${GREEN}✅ Static files prepared for root-level serving${NC}"
     else
         echo -e "${YELLOW}⚠️  wwwroot directory not found in publish output${NC}"
+        # Check if index.html is already in root (as it should be)
+        if [[ -f "index.html" ]]; then
+            echo -e "${GREEN}✅ index.html found in root directory${NC}"
+        else
+            echo -e "${YELLOW}⚠️  index.html not found in publish output${NC}"
+        fi
+    fi
+    
+    # Remove any Linux executable files that might cause issues
+    if [[ -f "mTLS.Server" ]]; then
+        rm -f "mTLS.Server"
+        echo -e "${BLUE}  • Removed Linux executable (keeping only .dll)${NC}"
     fi
     
     # List contents for verification
     echo -e "${BLUE}📁 Package contents:${NC}"
     ls -la | head -10
+    
+    # Verify certificates are included
+    if [[ -d "Certs" ]]; then
+        echo -e "${BLUE}📄 Certificate files included:${NC}"
+        ls -la Certs/ | head -5
+    fi
     
     # Create zip file - Azure App Service requires ZIP format
     if command -v zip &> /dev/null; then
@@ -203,12 +264,17 @@ create_deployment_package() {
         7z a "$DEPLOYMENT_ZIP" . -r > /dev/null
         echo -e "${BLUE}📦 Created ZIP package with 7-Zip${NC}"
     else
-        # Try using PowerShell on Windows
-        if [[ "$OS" == "Windows_NT" ]]; then
-            powershell.exe -Command "Compress-Archive -Path '.\*' -DestinationPath '$DEPLOYMENT_ZIP' -Force"
+        # Try using PowerShell on Windows/WSL
+        if command -v powershell.exe &> /dev/null || [[ -n "$WSL_DISTRO_NAME" ]] || [[ "$OS" == "Windows_NT" ]]; then
+            echo -e "${YELLOW}⚠️  Using PowerShell fallback for ZIP creation${NC}"
+            # Convert Unix path to Windows path for PowerShell
+            WIN_PATH=$(wslpath -w "$(pwd)" 2>/dev/null || pwd)
+            WIN_ZIP_PATH=$(wslpath -w "$DEPLOYMENT_ZIP" 2>/dev/null || echo "$DEPLOYMENT_ZIP")
+            powershell.exe -Command "Compress-Archive -Path '$WIN_PATH\\*' -DestinationPath '$WIN_ZIP_PATH' -Force"
             echo -e "${BLUE}📦 Created ZIP package with PowerShell${NC}"
         else
-            echo -e "${RED}❌ No ZIP utility found. Please install zip, 7z, or use Windows${NC}"
+            echo -e "${RED}❌ No ZIP utility found. Please install zip or 7z${NC}"
+            echo -e "${YELLOW}💡 To install zip on Ubuntu WSL: sudo apt update && sudo apt install zip${NC}"
             exit 1
         fi
     fi
@@ -371,6 +437,7 @@ main() {
     restore_dependencies
     build_server_project
     publish_server_project
+    prepare_deployment_files
     create_deployment_package
     deploy_to_azure
     wait_for_deployment

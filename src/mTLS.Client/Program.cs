@@ -175,10 +175,18 @@ app.UseAuthorization();
 // Client test endpoints - root path serves static index.html
 // app.MapGet("/", () => "mTLS Test Client - Use /test-server to test mTLS connection");
 
-app.MapGet("/test-server", async (IHttpClientFactory httpClientFactory) =>
+app.MapGet("/test-server", async (IHttpClientFactory httpClientFactory, ICertificateService certificateService) =>
 {
     var client = httpClientFactory.CreateClient("mTLSClient");
     var results = new List<object>();
+    
+    // First, check if client certificate is loaded
+    var clientCert = certificateService.LoadClientCertificate();
+    var certInfo = clientCert != null 
+        ? new { Subject = clientCert.Subject, Thumbprint = clientCert.Thumbprint, HasPrivateKey = clientCert.HasPrivateKey }
+        : new { Subject = "No certificate", Thumbprint = "N/A", HasPrivateKey = false };
+    
+    results.Add(new { Endpoint = "Client Certificate Check", Status = clientCert != null ? "Success" : "Failed", CertificateInfo = certInfo });
     
     // Test health endpoint (public)
     try
@@ -200,6 +208,17 @@ app.MapGet("/test-server", async (IHttpClientFactory httpClientFactory) =>
     catch (Exception ex)
     {
         results.Add(new { Endpoint = "/weatherforecast", Status = "Failed", Error = ex.Message });
+    }
+    
+    // Test debug headers endpoint to see what the server receives
+    try
+    {
+        var debugResponse = await client.GetStringAsync("/debug-headers");
+        results.Add(new { Endpoint = "/debug-headers", Status = "Success", Response = debugResponse });
+    }
+    catch (Exception ex)
+    {
+        results.Add(new { Endpoint = "/debug-headers", Status = "Failed", Error = ex.Message });
     }
     
     // Test mTLS endpoint (requires client certificate)

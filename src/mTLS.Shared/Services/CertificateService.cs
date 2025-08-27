@@ -63,25 +63,45 @@ public class LocalCertificateService : ICertificateService
 public class AzureCertificateService : ICertificateService
 {
     private readonly AzureCertificateConfiguration _config;
+    private readonly CertificateConfiguration _fallbackConfig;
 
-    public AzureCertificateService(AzureCertificateConfiguration config)
+    public AzureCertificateService(AzureCertificateConfiguration config, CertificateConfiguration fallbackConfig = null)
     {
         _config = config;
+        _fallbackConfig = fallbackConfig;
     }
 
     public X509Certificate2? LoadServerCertificate()
     {
-        return LoadCertificateFromStore(_config.ServerCertThumbprint);
+        var cert = LoadCertificateFromStore(_config.ServerCertThumbprint);
+        if (cert == null && _fallbackConfig != null)
+        {
+            Console.WriteLine("🔄 Falling back to local certificate for server");
+            return LoadLocalCertificate(_fallbackConfig.ServerCert, _fallbackConfig.ServerCertPassword);
+        }
+        return cert;
     }
 
     public X509Certificate2? LoadCACertificate()
     {
-        return LoadCertificateFromStore(_config.CACertThumbprint);
+        var cert = LoadCertificateFromStore(_config.CACertThumbprint);
+        if (cert == null && _fallbackConfig != null)
+        {
+            Console.WriteLine("🔄 Falling back to local certificate for CA");
+            return LoadLocalCertificate(_fallbackConfig.CACert, null);
+        }
+        return cert;
     }
 
     public X509Certificate2? LoadClientCertificate()
     {
-        return LoadCertificateFromStore(_config.ClientCertThumbprint);
+        var cert = LoadCertificateFromStore(_config.ClientCertThumbprint);
+        if (cert == null && _fallbackConfig != null)
+        {
+            Console.WriteLine("🔄 Falling back to local certificate for client");
+            return LoadLocalCertificate(_fallbackConfig.ClientCert, _fallbackConfig.ClientCertPassword);
+        }
+        return cert;
     }
 
     public bool ValidateClientCertificate(X509Certificate2 clientCertificate)
@@ -163,7 +183,6 @@ public class AzureCertificateService : ICertificateService
         try
         {
             // Azure App Service makes certificates available via environment variables
-            // The format is: WEBSITE_LOAD_USER_PROFILE + specific certificate access
             var websiteLoadCerts = Environment.GetEnvironmentVariable("WEBSITE_LOAD_CERTIFICATES");
             Console.WriteLine($"🔧 WEBSITE_LOAD_CERTIFICATES: {websiteLoadCerts}");
 
@@ -173,8 +192,61 @@ public class AzureCertificateService : ICertificateService
                 return null;
             }
 
-            // In Azure App Service Linux, certificates are loaded into a specific location
-            // Let's try the CurrentUser store with different approaches
+            // Check if we're on Linux (Azure App Service Linux)
+            var isLinux = Environment.OSVersion.Platform == PlatformID.Unix || 
+                         Environment.OSVersion.Platform == PlatformID.MacOSX;
+            
+            if (isLinux)
+            {
+                Console.WriteLine("🐧 Detected Linux environment - checking certificate files");
+                
+                // In Azure App Service Linux, certificates are available as files
+                // Check common certificate file locations
+                var certPaths = new[]
+                {
+                    $"/var/ssl/certs/{thumbprint}.crt",
+                    $"/var/ssl/private/{thumbprint}.key", 
+                    $"/home/site/wwwroot/Certs/{thumbprint}.pfx",
+                    $"/opt/certs/{thumbprint}.pfx",
+                    "/var/ssl/certs",
+                    "/opt/certs"
+                };
+
+                foreach (var path in certPaths)
+                {
+                    Console.WriteLine($"🔍 Checking path: {path}");
+                    if (Directory.Exists(path))
+                    {
+                        var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+                        Console.WriteLine($"📁 Found {files.Length} files in {path}");
+                        foreach (var file in files.Take(5))
+                        {
+                            Console.WriteLine($"  📄 {file}");
+                        }
+                    }
+                    else if (File.Exists(path))
+                    {
+                        Console.WriteLine($"📄 Found file: {path}");
+                    }
+                }
+
+                // Try to load certificate from environment variables
+                // Azure might provide certificate content via env vars
+                var certEnvVars = Environment.GetEnvironmentVariables()
+                    .Cast<System.Collections.DictionaryEntry>()
+                    .Where(e => e.Key.ToString().Contains("CERT") || e.Key.ToString().Contains("CERTIFICATE"))
+                    .ToList();
+
+                Console.WriteLine($"🔍 Found {certEnvVars.Count} certificate-related environment variables");
+                foreach (var envVar in certEnvVars.Take(10))
+                {
+                    var value = envVar.Value?.ToString();
+                    var displayValue = value?.Length > 50 ? value.Substring(0, 50) + "..." : value;
+                    Console.WriteLine($"  🔧 {envVar.Key}: {displayValue}");
+                }
+            }
+
+            // Try Windows/standard approach
             using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
             store.Open(OpenFlags.ReadOnly);
 
@@ -204,6 +276,55 @@ public class AzureCertificateService : ICertificateService
             return null;
         }
     }
+
+    private X509Certificate2? LoadLocalCertificate(string? path, string? password)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            Console.WriteLine("❌ Certificate path is empty");
+            return null;
+        }
+
+        try
+        {
+            // Try relative path first
+            if (!File.Exists(path))
+            {
+                // Try absolute path from content root
+                var contentRoot = Environment.GetEnvironmentVariable("WEBSITE_CONTENTSHARE_PATH") ?? 
+                                  Environment.CurrentDirectory;
+                var absolutePath = Path.Combine(contentRoot, path);
+                
+                Console.WriteLine($"🔍 Trying absolute path: {absolutePath}");
+                
+                if (File.Exists(absolutePath))
+                {
+                    path = absolutePath;
+                }
+                else
+                {
+                    Console.WriteLine($"❌ Certificate file not found: {path} or {absolutePath}");
+                    return null;
+                }
+            }
+
+            Console.WriteLine($"📄 Loading certificate from: {path}");
+            
+            if (!string.IsNullOrEmpty(password))
+            {
+                return new X509Certificate2(path, password);
+            }
+            else
+            {
+                return new X509Certificate2(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error loading local certificate from {path}: {ex.Message}");
+            return null;
+        }
+    }
 }
 
 public static class CertificateServiceExtensions
@@ -218,7 +339,16 @@ public static class CertificateServiceExtensions
             !string.IsNullOrEmpty(azureCertificateConfig?.ClientCertThumbprint))
         {
             services.AddSingleton(azureCertificateConfig);
-            services.AddSingleton<ICertificateService, AzureCertificateService>();
+            if (certificateConfig != null)
+            {
+                services.AddSingleton(certificateConfig);
+            }
+            services.AddSingleton<ICertificateService>(provider =>
+            {
+                var azureConfig = provider.GetRequiredService<AzureCertificateConfiguration>();
+                var fallbackConfig = provider.GetService<CertificateConfiguration>();
+                return new AzureCertificateService(azureConfig, fallbackConfig);
+            });
         }
         else if (certificateConfig != null)
         {

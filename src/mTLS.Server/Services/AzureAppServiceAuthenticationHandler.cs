@@ -9,15 +9,18 @@ namespace mTLS.Server.Services;
 public class AzureAppServiceAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     private readonly ICertificateService _certificateService;
+    private readonly IWebHostEnvironment _environment;
 
     public AzureAppServiceAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
-        ICertificateService certificateService) 
+        ICertificateService certificateService,
+        IWebHostEnvironment environment) 
         : base(options, logger, encoder)
     {
         _certificateService = certificateService;
+        _environment = environment;
     }
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -51,7 +54,7 @@ public class AzureAppServiceAuthenticationHandler : AuthenticationHandler<Authen
                 }
 
                 // Validate the certificate
-                var isValid = AzureAppServiceCertificateHandler.ValidateClientCertificate(clientCert, _certificateService);
+                var isValid = AzureAppServiceCertificateHandler.ValidateClientCertificateWithEnvironment(clientCert, _certificateService, _environment);
                 if (!isValid)
                 {
                     Logger.LogWarning("Client certificate validation failed");
