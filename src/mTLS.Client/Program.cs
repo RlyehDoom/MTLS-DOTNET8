@@ -150,10 +150,13 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Serve static files from current directory (root) in Azure
+// Configure static files for Azure deployment where index.html is in root
 app.UseDefaultFiles(new DefaultFilesOptions
 {
-    DefaultFileNames = { "index.html" }
+    DefaultFileNames = { "index.html" },
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(builder.Environment.ContentRootPath)),
+    RequestPath = ""
 });
 
 app.UseStaticFiles(); // Serves from wwwroot by default

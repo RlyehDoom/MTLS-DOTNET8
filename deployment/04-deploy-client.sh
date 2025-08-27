@@ -165,6 +165,18 @@ create_deployment_package() {
     
     cd "$PUBLISH_DIR"
     
+    # Check for nested publish directory and fix if found
+    if [[ -d "publish" ]]; then
+        echo -e "${YELLOW}⚠️  Found nested publish directory, fixing deployment structure...${NC}"
+        
+        # Move all files from nested publish to current level
+        if [[ -n "$(ls -A publish/ 2>/dev/null)" ]]; then
+            mv publish/* . 2>/dev/null || true
+            rmdir publish 2>/dev/null || true
+            echo -e "${BLUE}  • Fixed nested publish directory structure${NC}"
+        fi
+    fi
+    
     # For Azure App Service, move wwwroot contents to root level
     # This allows ASP.NET Core to serve static files from the root alongside API endpoints
     if [[ -d "wwwroot" ]]; then
@@ -196,6 +208,12 @@ create_deployment_package() {
         echo -e "${GREEN}✅ Static files prepared for root-level serving${NC}"
     else
         echo -e "${YELLOW}⚠️  wwwroot directory not found in publish output${NC}"
+        # Check if index.html is already in root (as it should be)
+        if [[ -f "index.html" ]]; then
+            echo -e "${GREEN}✅ index.html found in root directory${NC}"
+        else
+            echo -e "${RED}❌ index.html not found in publish output${NC}"
+        fi
     fi
     
     # List contents for verification
