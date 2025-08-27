@@ -49,24 +49,6 @@ builder.Services.AddAuthorization(options =>
         policy.RequireAuthenticatedUser());
 });
 
-// Configure Kestrel for local development only
-if (builder.Environment.IsDevelopment())
-{
-    Console.WriteLine("Running in Development mode - using launch settings configuration");
-    // Let Kestrel use the URLs from launchSettings.json
-    // No manual binding needed - Kestrel will handle HTTP and HTTPS based on applicationUrl
-}
-else
-{
-    // Production mode - Azure App Service configuration
-    Console.WriteLine("Running in Production mode - Azure App Service");
-    
-    // In Azure App Service, let Azure handle the port binding
-    // Azure automatically configures Kestrel with the correct port
-    Console.WriteLine("HTTPS termination handled by Azure Load Balancer");
-    Console.WriteLine("Port configuration handled by Azure App Service");
-}
-
 var app = builder.Build();
 
 // Configure forwarded headers (must be before UseAuthentication)
